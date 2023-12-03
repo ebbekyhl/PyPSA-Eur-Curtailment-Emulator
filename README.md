@@ -1,17 +1,17 @@
 
-################# PyPSA-Eur Curtailment Emulator ####################
+# PyPSA-Eur Curtailment Emulator 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 This repository introduces a linear parameterization of the curtailment outputs in PyPSA-Eur. This work establishes an emulator that can be used by models that do not have subannual resolution to represent renewable curtailment. The parameterization is currently limited to the following aspects:
-    - wind and solar mix
-    - deployment of short-duration battery storage
-    - deployment of long-duration energy storage 
+- wind and solar mix
+- deployment of short-duration battery storage
+- deployment of long-duration energy storage 
 
 For the PyPSA-Eur framework, we refer to the master branch [Github link]. But, for clarity, we have included relevant scripts in this repository that contains the adjustments made for this project. These adjustments include:
-    - The equality constraints on the renewable resources ("solve_networks.py").
-    - LDES technology which has the properties of a H2 storage with electrolyzers and fuel cells but only connected to the electricity bus to make it a pure electricity storage ("prepare_sector_network.py").
-    - LDES technology cost assumptions ("costs_2030.cvs").
-    - We remove the existing capacities of hydropower such that it is a greenfield capacity optimization (except transmission lines) with the intention to make it more generalizable ("prepare_sector_network.py").
+- The equality constraints on the renewable resources ("solve_networks.py").
+- LDES technology which has the properties of a H2 storage with electrolyzers and fuel cells but only connected to the electricity bus to make it a pure electricity storage ("prepare_sector_network.py").
+- LDES technology cost assumptions ("costs_2030.cvs").
+- We remove the existing capacities of hydropower such that it is a greenfield capacity optimization (except transmission lines) with the intention to make it more generalizable ("prepare_sector_network.py").
 
 # Dependencies
 
@@ -32,6 +32,8 @@ Note that step 1 and 2 are already performed, with the resulting files located i
 
 3. "pypsa_emulator.ipynb"
     - This script creates the emulator based on the metrics calculated in step 2. It then evaluates the curtailment for a user-specified range of wind and solar penetration combined with a given level of short-duration (Li-ion battery) and long-duration (H2) energy storage deployment. 
+
+To be added:
 
 4. "implement_pypsa_emulator.py"
     - As a use-case of this tool, we implement the emulator in the Integrated Assessment Model MESSAGEix-GLOBIOM
