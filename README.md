@@ -28,7 +28,7 @@ To run this framework, the following modules need to be installed:
 2. `scripts/metrics_from_pypsa.py`
     - Run this script to calculate metrics such as renewable curtailment, backup capacity, system cost, etc. Requires access to PyPSA-Eur network files.
 
-Note that step 1 and 2 are already performed, with the resulting files located in the subfolder "results/". However, if additional parameters or metrics are desired, this is possible with the access to the PyPSA-Eur network files. In that way, this framework can be run without necessarily requiring a new run of PyPSA-Eur.
+Note that step 1 and 2 are already performed, with the resulting files located in the subfolder `calculated_metrics/`. However, if additional parameters or metrics are desired, this is possible with the access to the PyPSA-Eur network files. In that way, this framework can be run without necessarily requiring a new run of PyPSA-Eur.
 
 3. `pypsa_emulator.ipynb`
     - This script creates the emulator based on the metrics calculated in step 2. It then evaluates the curtailment for a user-specified range of wind and solar penetration combined with a given level of short-duration (Li-ion battery) and long-duration (H2) energy storage deployment. 
