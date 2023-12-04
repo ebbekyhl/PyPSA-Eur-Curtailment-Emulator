@@ -97,17 +97,17 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
             if i > 0: 
                 x_im1 = f.index[i-1] # previous x_i coordinate
                 delta_f_i = f.loc[x_i,x_j] - f.loc[x_im1,x_j] # change in f(x_i)
-                delta_x_i = x_i*demand - x_im1*demand # step size in wind direction
+                delta_x_i = (x_i - x_im1)*demand # step size in wind direction
                 
                 curtailment_rate_i[x_j,x_i] = delta_f_i/delta_x_i
 
             # 1.2) Calculate the curtailment rate in the x_j-direction
             if j > 0:
                 x_jm1 = f.columns[j-1]
-                delta_curtailment_j = f.loc[x_i,x_j] - f.loc[x_i,x_jm1] # additional curtailment from increased solar share
-                delta_x_j = x_j*demand - x_jm1*demand 
+                delta_f_j = f.loc[x_i,x_j] - f.loc[x_i,x_jm1] # additional curtailment from increased solar share
+                delta_x_j = (x_j- x_jm1)*demand 
 
-                curtailment_rate_j[x_j,x_i] = delta_curtailment_j/delta_x_j
+                curtailment_rate_j[x_j,x_i] = delta_f_j/delta_x_j
 
             # 2) Calculate the marginal curtailment rates
 
@@ -122,7 +122,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
 
             # 2.2) calculate the marginal curtailment rate in the x_j-direction
             if j == 1:
-                marg_curtailment_rate_j[x_j,x_i] = curtailment_rate_j[x_j,x_i] # in the first step, it is the same as the curtailment rate
+                marg_curtailment_rate_j[x_j,x_i] = curtailment_rate_j[x_j,x_i].copy() # in the first step, it is the same as the curtailment rate
             elif j > 1:
                 x_jm1 = f.columns[j-1] # previous x_j-coordinate
                 marg_curtailment_rate_j[x_j,x_i] = curtailment_rate_j[x_j,x_i] - curtailment_rate_j[x_jm1,x_i] # marginal curtailment rate in the x_j direction
@@ -167,7 +167,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
     
     return gamma_ij_series, x_share_df_series
 
-def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_efficiency, renewable="wind"):
+def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_label, tech_efficiency, renewable="wind"):
     
     # Scenario names for the different PyPSA-Eur scenarios, here for the case of LDES:
     # ---> base_0 = "new_base_co2_lim" # this is the scenario for which base curtailment is calculated
@@ -180,7 +180,7 @@ def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_ef
     curt_B = df[tech_scenario][renewable + " absolute curt"] # curtailment in the scenario w/ the technology
     
     # 2. calculate the activity of the technology (including energy losses):
-    act = df[tech_scenario][tech_name + " absolute dispatch"]/tech_efficiency # in case of energy storage, tech_efficiency is the round-trip efficiency
+    act = df[tech_scenario][tech_name + " " + tech_label]/tech_efficiency # in case of energy storage, tech_efficiency is the round-trip efficiency
 
     # If we are looking at energy curtailment from solar PV, we need to reorder the indexes:
     if renewable == "solar":
@@ -297,7 +297,7 @@ def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_ef
     
     # beta_format = df_beta["values"]
 
-    return curtailment_reduction, act # beta_mrg, beta_format
+    return curtailment_reduction #, act # beta_mrg, beta_format
 
 def convert_series_into_2D_matrix(series,lvls,x_i_str,x_j_str):
     curtailment_df = pd.DataFrame(index=lvls)

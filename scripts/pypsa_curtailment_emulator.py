@@ -20,7 +20,7 @@ from scripts.curtailment_parameterization import base_curtailment, technology_te
 import numpy as np
 import pandas as pd
 
-def create_emulator(parameterization_case, SDES_case, LDES_case, RDIR, file_path):
+def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_excel_file=False):
     variables = ["wind curt", # For parameterization step 1&2
                 "solar curt",  # For parameterization step 1&2
                 "wind absolute curt", # For parameterization step 1&2
@@ -40,158 +40,133 @@ def create_emulator(parameterization_case, SDES_case, LDES_case, RDIR, file_path
                 "backup capacity factor high", # For paramterization step 3 
                 "backup capacity factor low", # For paramterization step 3
                 "total demand",
+                "transmission volume"
                 ]
 
+    base_case = scenarios["base"]
     ################## BASE CURTAILMENT ##############################
 
-    df = read_and_plot_scenarios([parameterization_case],
+    df = read_and_plot_scenarios([base_case],
                                     variables_input = variables, 
                                     directory=RDIR,
                                     plot=False)
 
-    var = 'wind absolute curt' # variable 
-    x_name = "wind" # primary index
-    demand = df[parameterization_case]["total demand"].iloc[0]*1e6 # total demand in MWh - here assuming that the demand is the same for all scenarios!
-    bin_lvls = list(df[parameterization_case]["wind curt"].index.get_level_values(0).unique().sort_values()) # penetration levels
+    demand = df[base_case]["total demand"].iloc[0]*1e6 # total demand in MWh - here assuming that the demand is the same for all scenarios!
     bin_lvls = [0,0.1,0.3,0.4,0.5,0.6,0.7,0.9]
 
-    delta_df1_dx1_df, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,parameterization_case) # base curtailment parameters
+    # Wind curtailment
+    var = 'wind absolute curt' # variable 
+    x_name = "wind" # primary index
+    gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
     print("Wind curtailment successfully parameterized! Proceeding to solar curtailment...")
 
     # save the parameters to the MESSAGEix-GLOBIOM subfolder (for later use):
     x_share_df.to_csv("MESSAGEix_GLOBIOM/wind_shares.csv") # share of electricity
-    delta_df1_dx1_df.to_csv("MESSAGEix_GLOBIOM/wind_curtailment_delta_df1_dx1.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
+    gamma_ij_wind_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_wind.csv") # save series to .csv
 
-    # convert the series into a matrix for visualisation purposes:
-    gamma_ij_wind = convert_series_into_2D_matrix(delta_df1_dx1_df,
+    # convert gamma_ij_wind_series into 2D array format:
+    gamma_ij_wind = convert_series_into_2D_matrix(gamma_ij_wind_series,
                                                     lvls=[0,1,2,3,4,5,6],
                                                     x_i_str="wind_curtailment_w",
                                                     x_j_str="solar")
 
+    # Solar curtailment
     var = 'solar absolute curt' # variable
-    # bin_lvls = list(df[parameterization_case]["solar curt"].index.get_level_values(0).unique().sort_values())
     x_name = "solar" # primary index
-
-    delta_df2_dx2_df, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,parameterization_case) # base curtailment parameters
+    gamma_ij_solar_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
     print("Solar curtailment successfully parameterized! Proceeding to technology term...")
 
     # save to .csv:
     x_share_df.to_csv("MESSAGEix_GLOBIOM/solar_shares.csv") # share of electricity
-    delta_df2_dx2_df.to_csv("MESSAGEix_GLOBIOM/solar_curtailment_delta_df2_dx2.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
+    gamma_ij_solar_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_solar.csv") # save series to .csv
 
     # convert the series into a matrix for visualisation purposes:
-    gamma_ij_solar = convert_series_into_2D_matrix(delta_df2_dx2_df,
+    gamma_ij_solar = convert_series_into_2D_matrix(gamma_ij_solar_series,
                                                     lvls=[0,1,2,3,4,5,6],
                                                     x_i_str="solar_curtailment_s",
                                                     x_j_str="wind")
 
     ########################## Technology term ##############################
 
-    # Contribution from LDES
-    base_0_wind = parameterization_case
-    base_wind = SDES_case
-    tech_wind = LDES_case
+    renewables = ["wind","solar"]
+    techs = efficiencies.keys()
 
-    scens = [base_0_wind,
-            base_wind,
-            tech_wind,
-            ]
-    
-    df_wind_ldes = read_and_plot_scenarios(scens,
+    for renewable in renewables:
+        for tech in techs:
+            scen_base = scenarios[tech][renewable][0] # base case
+            scen_ref = scenarios[tech][renewable][1] # reference case without technology 
+            scen_tech = scenarios[tech][renewable][2] # reference case with technology
+
+            scens = [scen_base,
+                    scen_ref,
+                    scen_tech,
+                    ]
+            
+            df_tech = read_and_plot_scenarios(scens,
                                             variables_input = variables, 
                                             directory=RDIR,
                                             plot=False)
 
-    beta_wind_ldes, act_wind_ldes = technology_term(df_wind_ldes, base_0_wind, base_wind, tech_wind, tech_name="LDES", tech_efficiency = 0.48, renewable="wind")
-    # beta_format.to_csv("data_for_message/wind_beta_ldes.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
+            beta = technology_term(df_tech, 
+                                    scen_base, scen_ref, scen_tech, 
+                                    tech_name = tech, tech_label = tech_labels[tech], tech_efficiency = efficiencies[tech], 
+                                    renewable=renewable)
+            
+            beta.to_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv")
 
-    beta_wind_ldes.index = gamma_ij_wind.index
-    beta_wind_ldes.columns = gamma_ij_wind.columns
-    beta_wind_ldes
+            if renewable == "wind" and tech == "LDES":
+                beta_wind_ldes = beta.copy()        
+                beta_wind_ldes.index = gamma_ij_wind.index
+                beta_wind_ldes.columns = gamma_ij_wind.columns
 
-    base_0_solar = SDES_case
-    base_solar = SDES_case
-    tech_solar = LDES_case
+            elif renewable == "solar" and tech == "LDES":
+                beta_solar_ldes = beta.copy()
+                beta_solar_ldes.index = gamma_ij_solar.index
+                beta_solar_ldes.columns = gamma_ij_solar.columns
 
-    scens = [base_0_solar,
-            base_solar,
-            tech_solar,
-            ]
-    df_solar_ldes = read_and_plot_scenarios(scens,variables_input = variables, directory=RDIR,plot=False)
+            elif renewable == "wind" and tech == "SDES":
+                beta_wind_sdes = beta.copy()
+                beta_wind_sdes.index = gamma_ij_wind.index
+                beta_wind_sdes.columns = gamma_ij_wind.columns
+            
+            elif renewable == "solar" and tech == "SDES":
+                beta_solar_sdes = beta.copy()
+                beta_solar_sdes.index = gamma_ij_solar.index
+                beta_solar_sdes.columns = gamma_ij_solar.columns
 
-    beta_solar_ldes, act_solar_ldes = technology_term(df_solar_ldes, base_0_solar, base_solar, tech_solar, tech_name="LDES", tech_efficiency = 0.9, renewable="solar")
-    # beta_format.to_csv("data_for_message/solar_beta_sdes.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
-    print("LDES impact successfully parameterized! Proceeding to SDES...")
+            print(tech + " impact on " + renewable + " curtailment successfully parameterized!")
 
-    beta_solar_ldes.index = gamma_ij_solar.index
-    beta_solar_ldes.columns = gamma_ij_solar.columns
-
-    # contribution from SDES
-    base_0_solar = parameterization_case
-    base_solar = parameterization_case
-    tech_solar = SDES_case
-
-    scens = [base_0_solar,
-            base_solar,
-            tech_solar
-            ]
-    df_solar_sdes = read_and_plot_scenarios(scens,variables_input = variables, directory=RDIR,plot=False)
-
-    beta_solar_sdes, act_solar_sdes = technology_term(df_solar_sdes, base_0_solar, base_solar, tech_solar, tech_name="SDES", tech_efficiency = 0.9, renewable="solar")
-    # beta_format.to_csv("data_for_message/solar_beta_sdes.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
-
-    print("SDES impact successfully parameterized!")
     print("Parameterization done!")
-
-    beta_solar_sdes.index = gamma_ij_solar.index
-    beta_solar_sdes.columns = gamma_ij_solar.columns
-    beta_solar_sdes
-
-    base_0_wind = parameterization_case
-    base_wind = parameterization_case
-    tech_wind = SDES_case
-
-    scens = [base_0_wind,
-            base_wind,
-            tech_wind
-            ]
-    df_wind_sdes = read_and_plot_scenarios(scens,variables_input = variables, directory=RDIR,plot=False)
-
-    beta_wind_sdes, act_wind_sdes = technology_term(df_wind_sdes, base_0_wind, base_wind, tech_wind, tech_name="SDES", tech_efficiency = 0.9, renewable="wind")
-    # beta_format.to_csv("data_for_message/solar_beta_sdes.csv") # vector format is most convenient for the implementation in MESSAGE (below, we show the matrix form)
-
-    beta_wind_sdes.index = gamma_ij_wind.index
-    beta_wind_sdes.columns = gamma_ij_wind.columns
-    beta_wind_sdes
 
     ############################# Update the excel file #########################################
 
-    # Load the workbook using openpyxl
-    workbook = load_workbook(file_path)
+    if update_excel_file:
+        # Load the workbook using openpyxl
+        workbook = load_workbook(file_path)
 
-    # Select the desired sheets
-    sheet_name_wind = "wind curtailment"
-    sheet_name_solar = "solar curtailment"
-    sheet_wind = workbook[sheet_name_wind] # sheet with wind curtailment
-    sheet_solar = workbook[sheet_name_solar] # sheet with solar curtailment
+        # Select the desired sheets
+        sheet_name_wind = "wind curtailment"
+        sheet_name_solar = "solar curtailment"
+        sheet_wind = workbook[sheet_name_wind] # sheet with wind curtailment
+        sheet_solar = workbook[sheet_name_solar] # sheet with solar curtailment
 
-    # Update the cells with the new parameter values
-    for i in range(7):
-        for j in range(7):
-            # allocate base curtailment
-            sheet_wind["D22:J28"][i][j].value = gamma_ij_wind.loc[i][j]
-            sheet_solar["D22:J28"][i][j].value = gamma_ij_solar.loc[i][j]
+        # Update the cells with the new parameter values
+        for i in range(7):
+            for j in range(7):
+                # allocate base curtailment
+                sheet_wind["D22:J28"][i][j].value = gamma_ij_wind.loc[i][j]
+                sheet_solar["D22:J28"][i][j].value = gamma_ij_solar.loc[i][j]
 
-            # allocate technology term for LDES
-            sheet_wind["D51:J57"][i][j].value = beta_wind_ldes.loc[i][j]
-            sheet_solar["D42:J48"][i][j].value = beta_solar_ldes.loc[i][j]
+                # allocate technology term for LDES
+                sheet_wind["D51:J57"][i][j].value = beta_wind_ldes.loc[i][j]
+                sheet_solar["D42:J48"][i][j].value = beta_solar_ldes.loc[i][j]
 
-            # allocate technology term for SDES
-            sheet_wind["D42:J48"][i][j].value = beta_wind_sdes.loc[i][j]
-            sheet_solar["D51:J57"][i][j].value = beta_solar_sdes.loc[i][j]
+                # allocate technology term for SDES
+                sheet_wind["D42:J48"][i][j].value = beta_wind_sdes.loc[i][j]
+                sheet_solar["D51:J57"][i][j].value = beta_solar_sdes.loc[i][j]
 
-    # Save the changes to the workbook
-    workbook.save(file_path)
+        # Save the changes to the workbook
+        workbook.save(file_path)
 
 def update_excel_parameters(file_path, sheet_names, inputs):
 
