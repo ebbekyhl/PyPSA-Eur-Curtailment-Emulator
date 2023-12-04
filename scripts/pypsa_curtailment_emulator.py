@@ -7,9 +7,9 @@ This script contains the function "create_emulator" which collects
 the results from the parameterization steps and updates the parameters to 
 the PyPSA-Eur emulator excel file. 
 Furthermore, it contains the functions used for testing and visualization of 
-the emulator at a user-specified scenario (currently, defined by the wind and 
-solar penetration level as well as the rollout of short-duration and long-duration 
-electricity storage).
+the emulator estimations at a user-specified scenario (currently, defined by 
+the wind and solar penetration level as well as the rollout of short-duration 
+and long-duration electricity storage).
 """
 
 from openpyxl import load_workbook

@@ -3,8 +3,9 @@
 Created on 29th of November 2023
 Author: Ebbe Kyhl Gøtske
 
-This script calculates the metrics from the PyPSA model. 
-The metrics are calculated for each scenario and saved in a csv file.
+This script calculates the metrics from the PyPSA-Eur scenario. 
+The metrics are calculated for each scenario and saved as a .csv file.
+
 The metrics include the following:
     - curtailment
     - storage dispatch

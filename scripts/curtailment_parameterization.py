@@ -3,10 +3,19 @@
 Created on 29th of November 2023
 Author: Ebbe Kyhl Gøtske
 
-This script parameterizes the curtailment of wind and solar in PyPSA-Eur. 
-It consists of the following main functions:
-    1) base_curtailment: calculates the base marginal curtailment
-    2) technology_term: calculates the curtailment reduction per activity of the considered technology
+This script contains functions to parameterize the curtailment of wind energy and solar PV resources 
+based on outputs from PyPSA-Eur at forced renewable penetration levels.
+
+It contains the two key functions:
+
+    1) base_curtailment: calculates the base curtailment of wind and solar, i.e., the curtailment
+                         at which no renewable integration support measures are taken (e.g., storage 
+                         deployment, transmission expansion, flexible demand, etc.). This representation
+                         includes the dependence of wind curtailment on solar penetration and vice versa.
+
+    2) technology_term: calculates the impact on the curtailment level by installing a technology 
+                        (e.g., storage, transmission, heat pump, etc.) relative to the activity of 
+                        the technology. For storage, the activity is the dispatch of the storage.
 
 """
 import pandas as pd
@@ -14,38 +23,33 @@ import numpy as np
 
 def base_curtailment(df,var,data_points,demand,x_name,base_name):
     # ---------------------------------------------------
-    # This function calculates the base marginal curtailment 
-    # curves for both wind and solar which together with the additional 
-    # technology contribution (calculated in a seperate function) can be 
-    # used to represent the curtailment of renewables in 
-    # energy models that do not contain subannual 
-    # timeslicing. The calculation is based on outputs 
-    # of PyPSA-Eur at forced penetration levels of wind 
-    # and solar. As we transition into the 2D field, 
-    # instead of the existing 1D representation, both wind 
-    # and solar will have marginal components. This function
-    # calculates the curtailment parameters that account for 
-    # this 2D dependence. 
+    # This function calculates the parameters used to represent the 
+    # base curtailment of wind energy and solar PV resources.
+    # As the curtailment of wind energy resources not only depend 
+    # on the wind penetration level but also on the solar penetration, 
+    # this function calculates the curtailment parameters that account
+    # for this 2D dependence.
     #
     # Inputs:
     #     df = dataframe containing the aggregated outputs of PyPSA-Eur
     #     var = name of the variable, e.g., "solar absolute curt"
     #     data_points = list containing the penetration levels used in PyPSA, 
     #                   e.g., [0.1,0.3,0.4,0.5,0.6,0.7,0.9]
-    #     demand = electricity demand, including exogenous + endogenous from sector-coupling
-    #     x_name = name of the energy source considered (either "wind" or "solar")
+    #     demand = electricity demand (including both exogenous and endogenous)
+    #     x_name = name of the renewbale energy source considered (either "wind" or "solar")
     #     base_name = name of the base scenario 
     #
     # Outputs:
-    #     gamma_ij_series = the marginal curtailment coefficients
-    #     x_share_df_series = the penetration level of x_i as percentage of electricity demand 
+    #     gamma_ij_series = marginal curtailment rates
+    #     x_share_df_series = the penetration level as percentage of electricity demand 
     # ---------------------------------------------------
 
-    # configure naming convention of indexes (here, index "i" refers to the primary variable and "j" the secondary)
+    # configure naming convention of indexes. Here, index "i" refers to the primary variable and "j" the secondary. 
+    # I.e., if we are looking at wind curtailment, index "i" refers to the wind share and "j" to the solar share.
     ij_names = {"wind": {"i_name":"w",
                          "j_name":"s"},
                 "solar": {"i_name":"s",
-                          "j_name":"w"}} # Example: If f_i = wind curtailment, index "i" refers to the wind share and "j" to the solar share
+                          "j_name":"w"}}
     globals().update(ij_names[x_name])
 
     # Organize data by penetration levels
@@ -57,7 +61,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
     else:
         df_lvls =  df[base_name][var]
         
-    # insert values at x_i = 0 and x_j = 0 (these have not been run)
+    # insert zeros at x_i = 0 and x_j = 0 
     df_copy = df_lvls.copy()
     for i in data_points:
         df_copy.loc[i,0] = 0
@@ -71,17 +75,18 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
         data_dic[lvl] = df_lvls.loc[lvl]
         lvl_count += 1
     
+    # create dataframe with outputs from PyPSA-Eur
     f = pd.DataFrame.from_dict(data_dic) # curtailment f(x_i,x_j)
 
-    # Initialize dictionaries for storing the calculated metrics
+    # Initialize dictionaries
     x_share = {} # the penetration level of x_i
     curtailment_rate_i = {} # curtailment rate in the x_i-direction
-    curtailment_rate_j = {} # curtailment rate in the x_i-direction
+    curtailment_rate_j = {} # curtailment rate in the x_j-direction
     marg_curtailment_rate_i = {} # marginal curtailment rate in the x_i-direction
-    marg_curtailment_rate_j = {} # marginal curtailment rate in the x_i-direction
-    gamma_ij = {} # resulting marginal curtailment parameters implementable in MESSAGEix-GLOBIOM
+    marg_curtailment_rate_j = {} # marginal curtailment rate in the x_j-direction
+    gamma_ij = {} # resulting marginal curtailment parameters 
 
-    for j in range(len(data_points)): # loop over the data points in the j-direction (e.g., for wind curtailment, this would be the solar-direction)  
+    for j in range(len(data_points)): # loop over the data points in the j-direction 
         x_j = f.columns[j] # x_j coordinate
         for i in range(len(data_points)): # loop over the data points in the i-direction
             x_i = data_points[i] # x_i coordinate
@@ -124,13 +129,11 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
             else:
                 marg_curtailment_rate_j[x_j, x_i] = np.nan
 
-    # marg_curtailment_rate_i and marg_curtailment_rate_j now have the coordinates [0.1,0.3,0.4,0.5,0.6,0.7,0.9] in both directions.
-
     # calculate a marginal of the marginal_curtailment_rate_j in the x_i direction 
     ##### Explanation: We now have a representation of how much the wind curtailment increases
     ##### proportional to the solar penetration. To make this representation compatible with
-    ##### the desired format, we need to calculate the marginal of these values but in the 
-    ##### wind direction.
+    ##### the desired format, we need to calculate how much this proportion changes when 
+    ##### moving in the wind-direction. 
     marg_curtailment_rate_j_copy = marg_curtailment_rate_j.copy()
     for j in range(len(lvls)):
         x_j = f.columns[j] 
@@ -140,7 +143,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
                 x_im1 = lvls[i-1]
                 marg_curtailment_rate_j_copy[x_j,x_i] = marg_curtailment_rate_j[x_j,x_i] - marg_curtailment_rate_j[x_j,x_im1] 
 
-    # 3) Assign the calculated metrics to the dedicated dictionaries
+    # 3) Allocate the calculated marginal curtailment rates
     for j in range(len(lvls)):
         x_j = f.columns[j] 
         for i in range(len(lvls)): 
@@ -149,21 +152,15 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
             if np.isnan(marg_curtailment_rate_i[(x_j, x_i)]): # if the marginal curtailment rate is nan, we do not need to allocate it.
                 continue
             
-            # if i == 0 and j == 0: # at this case, curtailment is 0
-            #     gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = 0
-            #     x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = 0 
-
-            elif j == 0: # base wind curtailment
+            elif j == 0: # base wind curtailment disregarding solar penetration
                 gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_curtailment_rate_i[(x_j, x_i)]
                 x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
            
-            elif j > 0: # additional curtailment from solar penetration 
+            elif j > 0: # additional curtailment accounting for solar penetration 
                 x_jp1 = f.columns[j+1]
                 gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_curtailment_rate_j_copy[(x_jp1, x_i)]
                 x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
             
-            # note that "i_name" and "j_name" are defined via the dictionary "ij_names". Some IDEs don't recognize this and mistakes it with an undefined naming.
-
     # convert dictionaries to pandas series
     gamma_ij_series = pd.Series(gamma_ij)
     x_share_df_series = pd.Series(x_share)

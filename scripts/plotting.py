@@ -4,7 +4,7 @@ Created on 29th of November 2023
 Author: Ebbe Kyhl Gøtske
 
 This script contains functions for plotting the results 
-from the scenarios run in PyPSA-Eur.
+from the scenarios obtained in PyPSA-Eur.
 """
 import pandas as pd
 import glob
