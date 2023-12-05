@@ -212,90 +212,15 @@ def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_la
     x_js = beta.index.get_level_values(0).unique()
     x_is = beta.index.get_level_values(1).unique()
 
-    # beta_mrg_i = pd.DataFrame(index=x_js,columns=x_is) # marginal curtailment per activity of the considered technology in the wind-direction
-    # beta_mrg_i.loc[:,:] = np.nan
-
-    curtailment_reduction = pd.DataFrame(index=x_js,columns=x_is) # marginal curtailment per activity of the considered technology in the wind-direction
+    curtailment_reduction = pd.DataFrame(index=x_js,columns=x_is) # curtailment reduction per activity of the considered technology
     curtailment_reduction.loc[:,:] = np.nan
-
-    # beta_mrg_i.loc[:,x_is[0]] = 0
-
-    # beta_mrg_j = pd.DataFrame(index=x_js,columns=x_is) # marginal curtailment per activity of the considered technology in the solar-direction
-    # beta_mrg_j.loc[:,:] = np.nan
-    # beta_mrg_j.loc[x_js[0],:] = 0
     
-    i = 0
-    j = 0
     for j in range(len(x_js)): # solar index
         x_j = x_js[j]
         for i in range(len(x_is)): # wind index
             x_i = x_is[i]
             if (x_j,x_i) in beta.index:
                 curtailment_reduction.loc[x_j,x_i] = beta.loc[x_j,x_i]
-
-                # if i > 0: # when looking at wind shares > 10 %
-                #     x_im1 = x_is[i-1] # previous wind share
-                #     delta_x_i = (x_i - x_im1)*100 # step size in percentage point of wind share
-            
-                #     beta_mrg_i.loc[x_j,x_i] = (beta.loc[x_j,x_i] - beta.loc[x_j,x_im1])/delta_x_i
-
-                # if j > 0: # when looking at solar shares > 10 %
-                #     x_jm1 = x_js[j-1] # previous solar share
-                #     delta_x_j = (x_j - x_jm1)*100 # step size in percentage point of solar share
-
-                #     beta_mrg_j.loc[x_j,x_i] = (beta.loc[x_j,x_i] - beta.loc[x_jm1,x_i])/delta_x_j
-
-    # beta_mrg_i = beta_mrg_i.diff(axis=1) # marginal increase of contribution in wind-direction
-    # beta_mrg_i = beta_mrg_i.loc[:,x_is[1]:]
-    # beta_mrg_i.columns = [0.1,0.3,0.4,0.5,0.6,0.7]
-
-    # beta_mrg_j = beta_mrg_j.diff(axis=1) # marginal increase of contribution in wind-direction
-    # beta_mrg_j = beta_mrg_j.loc[:,x_is[1]:]
-    # beta_mrg_j.columns = [0.1,0.3,0.4,0.5,0.6,0.7]
-
-    # beta_mrg = beta_mrg_i.copy()
-    
-    # beta_mrg.loc[x_js[0],:] = beta_mrg_i.loc[x_js[0],:]
-    # beta_mrg.loc[x_js[1]:,:] = beta_mrg_j.loc[x_js[1]:,:]
-
-    ## calculate average curtailment reductions in every bin
-
-    # curtailment_reduction_avg = pd.DataFrame(index=x_js,columns=x_is[0:-1])
-    # for j in range(len(x_js)): # solar index
-    #     x_j = x_js[j]
-    #     for i in range(len(x_is)-1):
-    #         x_i = x_is[i]
-    #         x_ip1 = x_is[i+1]            
-    #         curtailment_reduction_avg.loc[x_j,x_i] = (curtailment_reduction.loc[x_j,x_i] + curtailment_reduction.loc[x_j,x_ip1])/2
-
-    # ######### convert 2D matrix to 1D vector which is more convenient for the implementation in MESSAGEix-GLOBIOM #########
-
-    # renewable_conjugate = {"wind":"solar",
-    #                        "solar":"wind"}
-    
-    # lvls_dict = {0.1:1,
-    #              0.3:2,
-    #              0.4:3,
-    #              0.5:4,
-    #              0.6:5,
-    #              0.7:6,
-    #              0.9:7,
-    #              }
-
-    # # flatten beta matrix to vector
-    # beta_flat = beta_mrg.stack()
-
-    # df_beta = pd.DataFrame(beta_flat,columns = ["values"])
-    # df_beta["solar"] = df_beta.index.get_level_values(0)
-    # df_beta["wind"] = df_beta.index.get_level_values(1)
-    # df_beta["solar_lvls"] = df_beta["solar"].map(lvls_dict) # convert solar penetration lvls 0.1, 0.3, etc. to 1, 2, etc.
-    # df_beta["wind_lvls"] = df_beta["wind"].map(lvls_dict) # convert wind penetration lvls 0.1, 0.3, etc. to 1, 2, etc.
-
-    # df_beta["index"] = renewable + "_curtailment_" + renewable[0] + df_beta[renewable + "_lvls"].astype(str) + renewable_conjugate[renewable][0] + (df_beta[renewable_conjugate[renewable] + "_lvls"] - 1).astype(str)
-    # df_beta.set_index("index",inplace=True)
-    # df_beta.index.name = None
-    
-    # beta_format = df_beta["values"]
 
     return curtailment_reduction #, act # beta_mrg, beta_format
 

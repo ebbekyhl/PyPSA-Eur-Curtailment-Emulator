@@ -52,53 +52,84 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
     for tech in techs:
         act_tech = act_techs[tech]
 
+        if act_tech == 0:
+            tech_term_sum[tech] = 0
+            continue
+
         # Read beta coefficients
         beta_tech_renewable = pd.read_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv",index_col=0)
-        beta_tech_renewable.columns = [0,0.1,0.3,0.4,0.5,0.6,0.7]
-        beta_tech_renewable.index = [0,0.1,0.3,0.4,0.5,0.6,0.7]
+        beta_tech_renewable.columns = beta_tech_renewable.columns.astype(float)
+        beta_tech_renewable.index = beta_tech_renewable.index.astype(float)
 
         # tech term 
         curtailment_tech_ij = {}
-        bins_i = [0.,0.1,0.3,0.4,0.5,0.6,0.7,0.9] #beta_tech_renewable.columns
-        bins_j = [0.,0.1,0.3,0.4,0.5,0.6,0.7,0.9] #beta_tech_renewable.index
+        bins = [0.,0.1,0.3,0.4,0.5,0.6,0.7,0.9,2] 
 
-        # if renewable == "wind" and tech == "ldes":
-        #     print(primary_resource,secondary_resource)
+        C = primary_resource
+        D = secondary_resource
 
         N = len(beta_tech_renewable.columns)
         M = len(beta_tech_renewable.index)
-        for i in range(N):
-            for j in range(M):
+        for i in range(1,N+1):
+            for j in range(1,M+1):
+
+                x_i_lower = bins[i-1] 
+                x_i_upper = bins[i]
+
+                x_j_lower = bins[j-1] #if (C >= 10 and D < 30) or (C >= 10 and D < 30) else beta_tech_renewable.index[j]
+                x_j_upper = bins[j]
+
+                bounds = {1:7,2:7,3:7,4:6,5:6,6:5,7:3,}
+                bound_i = i == bounds[j] # upper bound of the i-coordinate of the considered bin
+                bound_j = j == bounds[i] # upper bound of the j-coordinate of the considered bin
+
+                bound_diag = round(bins[i] + bins[j],2) >= 1.3 # diagonal boundary of scenarios corresponding to the 130% VRE share cutouff
+
+                # Four conditions must be True for the beta coefficient to be applied
                 
-                lt_renewable_cutoff = round(bins_i[i+1] + bins_j[j+1],2) < 1.3
-
-                condition_i_lower = primary_resource >= bins_i[i]*demand 
-                condition_j_lower = secondary_resource > bins_j[j]*demand 
-
-                condition_i_upper = primary_resource < bins_i[i+1]*demand if i+1 < N and lt_renewable_cutoff else True 
-                condition_j_upper = secondary_resource <= bins_j[j+1]*demand if j+1 < M and lt_renewable_cutoff else True 
+                # 1. primary resource lower bound
+                condition_i_lower = C >= x_i_lower*demand # primary resource should be equal to or greater than the i-coordinate of the considered bin
+                
+                # 2. primary resource upper bound
+                condition_i_upper = C < x_i_upper*demand if not bound_i and not bound_diag else True 
+                
+                # 3. + 4. secondary resource lower and upper bounds
+                if j == 1:
+                    condition_j_lower = True 
+                    condition_j_upper = D <= x_j_upper*demand if not bound_j and not bound_diag else True 
+                elif j == 2:
+                    condition_j_lower = D > x_j_lower*demand # secondary resource should be equal to or greater than the j-coordinate of the considered bin
+                    condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
+                else:
+                    condition_j_lower = D >= x_j_lower*demand # secondary resource should be equal to or greater than the j-coordinate of the considered bin
+                    condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
 
                 conditions = condition_i_lower and condition_j_lower and condition_i_upper and condition_j_upper
 
-                # if renewable == "wind" and tech == "ldes" and bins_i[i+1] == 0.4 and bins_j[j+1] == 0.9:
-                #     print(condition_i_lower,condition_j_lower,condition_i_upper,condition_j_upper)
-
                 if conditions:
-                    beta_ij = beta_tech_renewable.loc[bins_j[j],bins_i[i]]
-
+                    beta_ij = beta_tech_renewable.loc[bins[j],bins[i]]
                     curtailment_tech_ij[j,i] = beta_ij*act_tech
 
-                    # if renewable == "wind" and tech == "ldes":
-                    #     print(bins_j[j+1],bins_i[i+1],beta_ij)
-
-        tech_term_series = pd.Series(curtailment_tech_ij).fillna(0)
+        if len(curtailment_tech_ij) > 0:
+            tech_term_series = pd.Series(curtailment_tech_ij).fillna(0)
         
-        # count number of non-zero values
-        tech_terms = tech_term_series[tech_term_series != 0]
+            # count number of non-zero values
+            tech_terms = tech_term_series[tech_term_series != 0]
+            if len(tech_terms) > 1:
+                # if there are multiple values, take the value at the highest primary resource level           
+                # first, reorder the index to have the primary resource level as the first level
+                tech_terms = tech_terms.swaplevel(0,1)
 
-        if len(tech_terms) > 0:
-            tech_term_sum[tech] = tech_terms.iloc[0]
+                # then take the value at the highest primary resource level
+                tech_terms_max_coord = max(tech_terms.index.get_level_values(0))
+                
+                tech_term_sum[tech] = tech_terms.loc[tech_terms_max_coord,:].sum()
+
+            else:
+                tech_term_sum[tech] = tech_term_series.sum()
+
         else:
-            tech_term_sum[tech] = tech_term_series.sum()
+            print("Issues with " + tech + " ," + renewable + " (" + str(D) + "," + str(C) + ") !")
+            tech_term_sum[tech] = 0
 
     return tech_term_sum
