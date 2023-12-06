@@ -1,3 +1,18 @@
+# -*- coding: utf-8 -*-
+"""
+Created on 4th of December 2023
+Author: Ebbe Kyhl Gøtske
+
+This script contains two key functions to calculate the curtailment based on a set of parameters
+obtained from PyPSA-Eur scenarios. The first function, include_base_curtailment, calculates the
+curtailment based on two terms: 
+    1) the curtailment as function of the primary resource (e.g., wind), 
+    2) the curtailment as function of the secondary resource (e.g., solar). 
+    
+The second function, include_tech_term, calculates the curtailment reduction based on the activity 
+of a given technology.
+"""
+
 import pandas as pd
 import numpy as np
 
@@ -54,8 +69,10 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
 
         if act_tech == 0:
             tech_term_sum[tech] = 0
+            # print("No activity for " + tech + " . Skipping...")
             continue
 
+        # print("Calculating tech term for " + tech + " ...")
         # Read beta coefficients
         beta_tech_renewable = pd.read_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv",index_col=0)
         beta_tech_renewable.columns = beta_tech_renewable.columns.astype(float)
@@ -76,13 +93,12 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
                 x_i_lower = bins[i-1] 
                 x_i_upper = bins[i]
 
-                x_j_lower = bins[j-1] #if (C >= 10 and D < 30) or (C >= 10 and D < 30) else beta_tech_renewable.index[j]
+                x_j_lower = bins[j-1] 
                 x_j_upper = bins[j]
 
                 bounds = {1:7,2:7,3:7,4:6,5:6,6:5,7:3,}
                 bound_i = i == bounds[j] # upper bound of the i-coordinate of the considered bin
                 bound_j = j == bounds[i] # upper bound of the j-coordinate of the considered bin
-
                 bound_diag = round(bins[i] + bins[j],2) >= 1.3 # diagonal boundary of scenarios corresponding to the 130% VRE share cutouff
 
                 # Four conditions must be True for the beta coefficient to be applied
@@ -95,13 +111,13 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
                 
                 # 3. + 4. secondary resource lower and upper bounds
                 if j == 1:
-                    condition_j_lower = True 
+                    condition_j_lower = D > 0 
                     condition_j_upper = D <= x_j_upper*demand if not bound_j and not bound_diag else True 
                 elif j == 2:
                     condition_j_lower = D > x_j_lower*demand # secondary resource should be equal to or greater than the j-coordinate of the considered bin
                     condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
                 else:
-                    condition_j_lower = D >= x_j_lower*demand # secondary resource should be equal to or greater than the j-coordinate of the considered bin
+                    condition_j_lower = D >= x_j_lower*demand 
                     condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
 
                 conditions = condition_i_lower and condition_j_lower and condition_i_upper and condition_j_upper
@@ -129,7 +145,7 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
                 tech_term_sum[tech] = tech_term_series.sum()
 
         else:
-            print("Issues with " + tech + " ," + renewable + " (" + str(D) + "," + str(C) + ") !")
+            print("Conditions not fulfilled for " + tech + " ," + renewable + " (" + str(D) + "," + str(C) + ") !")
             tech_term_sum[tech] = 0
 
     return tech_term_sum

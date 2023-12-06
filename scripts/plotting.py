@@ -154,7 +154,7 @@ labels = {"wind share":"wind share \n (% of electricity demand)",
          "cv solar":"capacity value solar [-]",
         }
 
-def mesh_color_2(scens,variables,RDIR,vmin,vmax, norm_w_demand=False, equidistant=False):
+def mesh_color_2(scens,variables,RDIR,vmin,vmax, var="curtailment",norm_w_demand=False, equidistant=False):
     
     variables_read = variables["read"]
     variables_plot = variables["plot"]
@@ -170,6 +170,16 @@ def mesh_color_2(scens,variables,RDIR,vmin,vmax, norm_w_demand=False, equidistan
         
         for scen in scens:
             df_plot = df[scen][variables_plot[j]]
+
+            if "SDES" in variables_plot[0]:
+                df_plot = df_plot/0.9
+            elif "LDES" in variables_plot[0]:
+                df_plot = df_plot/0.48
+
+            if "transmission volume" in variables_plot:
+                #trans_vol = 174500000.0 # Existing transmission volume of the base network [MWkm]
+                df_plot = (df_plot/df_plot.loc[0.1,0.1] - 1)*100
+                #df_plot = (df_plot*1e6 - trans_vol) # converting TWkm to MWmk and then subtracting existing transmission volume
 
             if norm_w_demand:
                 df_demand = df[scen]["total demand"]
@@ -189,7 +199,7 @@ def mesh_color_2(scens,variables,RDIR,vmin,vmax, norm_w_demand=False, equidistan
             ax.set_xlabel("wind share (% of " + label + ")")
             ax.set_ylabel("solar share (% of " + label + ")")
 
-            cb.set_label(variables_plot[j][0:5] + " curtailment (% of " + label + ")")
+            cb.set_label(variables_plot[j][0:5] + " " + var + " (% of " + label + ")")
             # add cell values to the plot
             df_plot_2D = df_plot.unstack()
 

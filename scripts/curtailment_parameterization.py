@@ -22,27 +22,27 @@ import pandas as pd
 import numpy as np
 
 def base_curtailment(df,var,data_points,demand,x_name,base_name):
-    # ---------------------------------------------------
-    # This function calculates the parameters used to represent the 
-    # base curtailment of wind energy and solar PV resources.
-    # As the curtailment of wind energy resources not only depend 
-    # on the wind penetration level but also on the solar penetration, 
-    # this function calculates the curtailment parameters that account
-    # for this 2D dependence.
-    #
-    # Inputs:
-    #     df = dataframe containing the aggregated outputs of PyPSA-Eur
-    #     var = name of the variable, e.g., "solar absolute curt"
-    #     data_points = list containing the penetration levels used in PyPSA, 
-    #                   e.g., [0.1,0.3,0.4,0.5,0.6,0.7,0.9]
-    #     demand = electricity demand (including both exogenous and endogenous)
-    #     x_name = name of the renewbale energy source considered (either "wind" or "solar")
-    #     base_name = name of the base scenario 
-    #
-    # Outputs:
-    #     gamma_ij_series = marginal curtailment rates
-    #     x_share_df_series = the penetration level as percentage of electricity demand 
-    # ---------------------------------------------------
+    """
+    This function calculates the parameters used to represent the 
+    base curtailment of wind energy and solar PV resources.
+    As the curtailment of wind energy resources not only depend 
+    on the wind penetration level but also on the solar penetration, 
+    this function calculates the curtailment parameters that account
+    for this 2D dependence.
+    
+    Inputs:
+        df = dataframe containing the aggregated outputs of PyPSA-Eur
+        var = name of the variable, e.g., "solar absolute curt"
+        data_points = list containing the penetration levels used in PyPSA, 
+                      e.g., [0.1,0.3,0.4,0.5,0.6,0.7,0.9]
+        demand = electricity demand (including both exogenous and endogenous)
+        x_name = name of the renewbale energy source considered (either "wind" or "solar")
+        base_name = name of the base scenario 
+    
+    Outputs:
+        gamma_ij_series = marginal curtailment rates
+        x_share_df_series = the penetration level as percentage of electricity demand 
+    """
 
     # configure naming convention of indexes. Here, index "i" refers to the primary variable and "j" the secondary. 
     # I.e., if we are looking at wind curtailment, index "i" refers to the wind share and "j" to the solar share.
@@ -167,30 +167,54 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
     
     return gamma_ij_series, x_share_df_series
 
-def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_label, tech_efficiency, renewable="wind"):
-    
-    # Scenario names for the different PyPSA-Eur scenarios, here for the case of LDES:
-    # ---> base_0 = "new_base_co2_lim" # this is the scenario for which base curtailment is calculated
-    # ---> base_scenario = "new_SDES_co2_lim" # this is the scenario that represents curtailment w/o LDES
-    # ---> tech_scenario = "new_SDES_LDES_co2_lim" # this is the scenario that represents curtailment w/ LDES
+def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label, tech_efficiency, demand, renewable="wind"):
+    """ Calculation of the technology term in the curtailment parameterization.
+        Inputs:
+        - df = dataframe containing the aggregated outputs of PyPSA-Eur
+        - base = name of the scenario for which base curtailment is calculated
+        - ref_scenario = name of the scenario w/o the technology
+        - tech_scenario = name of the scenario w/ the technology
+        - tech_name = name of the technology
+        - tech_label = label of the technology corresponding to the variable name in calculated metrics from PyPSA-Eur
+        - tech_efficiency = energy efficiency of the technology (e.g., round-trip efficiency of storage)
+        - renewable = name of the renewable energy source considered (either "wind" or "solar")
+
+        Outputs:
+        - beta = curtailment reduction per activity of the considered technology
+
+    """
 
     # 1. Calculate curtailment for the different scenarios:
-    curt_base_0 = df[base_0][renewable + " absolute curt"] # curtailment in the base scenario
-    curt_A = df[base_scenario][renewable + " absolute curt"] # curtailment in the scenario w/o the technology
-    curt_B = df[tech_scenario][renewable + " absolute curt"] # curtailment in the scenario w/ the technology
+    curtailment_variable = "absolute curt" # if tech_name == "transmission volume" else "absolute curt"
+
+    curt_base = df[base][renewable + " " + curtailment_variable] # curtailment in the base scenario
+    curt_A = df[ref_scenario][renewable + " " + curtailment_variable] # curtailment in the scenario w/o the technology
+    curt_B = df[tech_scenario][renewable + " " + curtailment_variable] # curtailment in the scenario w/ the technology
     
     # 2. calculate the activity of the technology (including energy losses):
     act = df[tech_scenario][tech_name + " " + tech_label]/tech_efficiency # in case of energy storage, tech_efficiency is the round-trip efficiency
 
+    if tech_name == "transmission":
+        base_transmission = df[base][tech_name + " " + tech_label]/tech_efficiency # base transmission volume
+        transmission_expansion = act - base_transmission # subtracting the base transmission capacity such that the "act" variable corresponds to the transmission expansion
+        normalized_transmission_expansion = transmission_expansion/base_transmission*100 # normalized transmission expansion
+        act = normalized_transmission_expansion 
+
     # If we are looking at energy curtailment from solar PV, we need to reorder the indexes:
     if renewable == "solar":
-        curt_base_0 = curt_base_0.reorder_levels([1,0]).sort_index()
+        curt_base = curt_base.reorder_levels([1,0]).sort_index()
         curt_A = curt_A.reorder_levels([1,0]).sort_index()
         curt_B = curt_B.reorder_levels([1,0]).sort_index()
         act = act.reorder_levels([1,0]).sort_index()
 
     # 3. calculate the curtailment reduction/increase per activity of the considered technology
-    beta = ((curt_B - curt_A)/act) 
+    delta_curt_AB = curt_A - curt_B # difference in curtailment between the scenario w/o and w/ the technology 
+    if tech_name == "transmission":
+        delta_curt_AB = delta_curt_AB/demand*100 # we normalize the curtailment reduction by the demand
+
+    relative_curtailment_reduction = delta_curt_AB/act
+    # for transmission, we calculate the curtailment reduction [% of demand] per transmission expansion [% of base transmission]
+    # for every other case, we calculate the curtailment reduction [MWh] per activity of the technology [MWh]
 
     # 4. scale the curtailment reduction to the curtailment of the base scenario
     # Explanation: The base curtailment is derived based on the "new_base_co2_lim" PyPSA scenario
@@ -198,31 +222,24 @@ def technology_term(df, base_0, base_scenario, tech_scenario, tech_name, tech_la
     # "new_SDES_co2_lim" and "new_SDES_LDES_co2_lim" scenarios if we are considering the impact of LDES. 
     # However, the curtailment in the "new_SDES_co2_lim" scenario is lower than in the "new_base_co2_lim" scenario. 
     # Thus, we need to scale the curtailment reduction such that we can represent it as a counteracting term to 
-    # the base curtailment. Note that base_0 and base_scenario are the same for SDES. 
-    beta = beta/curt_A*curt_base_0  
-    beta[0.1,0.1] = 0 # curtailment is 0, so the impact is also 0
+    # the base curtailment. Note that base and ref_scenario are the same for SDES. 
+    relative_curtailment_reduction = relative_curtailment_reduction/curt_A*curt_base
+    relative_curtailment_reduction[0.1,0.1] = 0 # curtailment is 0, so the impact is also 0
 
-    # 5. calculate marginal curtailment (when increasing renewable penetration) per activity of the technology
-    # NB! We cannot make use of the similar marginal approach as before since this would lead to nonlinearity 
-    # in the curtailment reduction term (i.e., it would be a product of wind resources (variable of the optimization) 
-    # and the activity of the technology (which is also a variable of the optimization). The commented lines below 
-    # show the approach that would be used if we were to calculate the marginal curtailment per activity of the 
-    # technology - ignoring that the constraints would be nonlinear. 
+    x_js = relative_curtailment_reduction.index.get_level_values(0).unique()
+    x_is = relative_curtailment_reduction.index.get_level_values(1).unique()
 
-    x_js = beta.index.get_level_values(0).unique()
-    x_is = beta.index.get_level_values(1).unique()
-
-    curtailment_reduction = pd.DataFrame(index=x_js,columns=x_is) # curtailment reduction per activity of the considered technology
-    curtailment_reduction.loc[:,:] = np.nan
+    beta = pd.DataFrame(index=x_js,columns=x_is) # curtailment reduction per activity of the considered technology
+    beta.loc[:,:] = np.nan
     
     for j in range(len(x_js)): # solar index
         x_j = x_js[j]
         for i in range(len(x_is)): # wind index
             x_i = x_is[i]
-            if (x_j,x_i) in beta.index:
-                curtailment_reduction.loc[x_j,x_i] = beta.loc[x_j,x_i]
+            if (x_j,x_i) in relative_curtailment_reduction.index:
+                beta.loc[x_j,x_i] = relative_curtailment_reduction.loc[x_j,x_i]
 
-    return curtailment_reduction #, act # beta_mrg, beta_format
+    return beta 
 
 def convert_series_into_2D_matrix(series,lvls,x_i_str,x_j_str):
     curtailment_df = pd.DataFrame(index=lvls)

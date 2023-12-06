@@ -43,7 +43,7 @@ import matplotlib.dates as mdates
 from _helpers import override_component_attrs
 import warnings
 warnings.filterwarnings('ignore')
-overrides = override_component_attrs("override_component_attrs")
+overrides = override_component_attrs("../PyPSA-Eur/override_component_attrs")
 locator = mdates.DayLocator()  # every month
 fmt = mdates.DateFormatter('%b-%d')
 
@@ -431,25 +431,17 @@ def calculate_costs(n, label, costs):
 
     return costs
 
-RDIR = "calculated_metrics/"
-path = 'networks/'
+#%% Define which scenario to be read
+RDIR = "../calculated_metrics/"
+path = 'C:\\Users/au485969/OneDrive - Aarhus universitet/PhD/IIASA YSSP/pypsa/networks/'
 
 # scenarios 
-
-scens = [#"new_base",
-         #"new_flipped_merit_order"
-         #"new_base_co2_lim"
-         "new_LDES_co2_lim",
-         #"new_SDES",
-         #"new_SDES_LDES"
-         #"new_LDES_co2_lim",
-         #"new_SDES_co2_lim",
-         #"new_SDES_LDES_co2_lim"
-         #"new_transport",
-         #"new_transport_co2_lim",
-         #"new_heating_demand",
-         #"new_heating_demand_co2_lim"
-        ]
+scens = ['new_transmission', 
+          'new_transmission_co2_lim', 
+          'new_transmission_SDES', 
+          'new_transmission_SDES_co2_lim', 
+          'new_transmission_SDES_LDES', 
+          'new_transmission_SDES_LDES_co2_lim']
 
 # scenarios with existing hydropower facilities: "1H_w_hydro", "1H_w_co2_lim_w_hydro",
 denominator = "gen_theoretical" # normalization of curtailment w.r.t. either theoretical or actual generation, or pick "load" as units of demand

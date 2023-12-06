@@ -21,6 +21,29 @@ import numpy as np
 import pandas as pd
 
 def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_excel_file=False):
+    """
+    This function performs the parameterization of the curtailment, first by deriving the base term of the curtailment function 
+    (i.e., the curtailment as function of the primary and secondary resource) and second by deriving the technology term of the
+    curtailment function (i.e., the curtailment reduction as function of the activity of a given technology).
+
+    Inputs:
+        scenarios [dict] = dictionary with the scenarios used for parameterization
+        RDIR [string] = directory of the results
+        file_path [string] = path to the PyPSA-Eur emulator excel file
+        efficiencies [dict] = dictionary with the efficiencies of the technologies
+        tech_labels [dict] = dictionary with the labels of the technologies
+        update_excel_file [bool] = if True, the excel file will be updated with the new parameters
+
+    Outputs:
+        Outputs are saved to the MESSAGEix_GLOBIOM subfolder: 
+            - gamma_ij_wind.csv: base term of the wind curtailment function
+            - gamma_ij_solar.csv: base term of the solar curtailment function
+            - beta_{tech}_wind.csv: technology term of the wind curtailment function 
+            - beta_{tech}_solar.csv: technology term of the solar curtailment function 
+            - wind_shares.csv: share of wind electricity of the total electricity demand
+            - solar_shares.csv: share of solar PV electricity of the total electricity demand
+    """
+    
     variables = ["wind curt", # For parameterization step 1&2
                 "solar curt",  # For parameterization step 1&2
                 "wind absolute curt", # For parameterization step 1&2
@@ -54,7 +77,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
     demand = df[base_case]["total demand"].iloc[0]*1e6 # total demand in MWh - here assuming that the demand is the same for all scenarios!
     bin_lvls = [0,0.1,0.3,0.4,0.5,0.6,0.7,0.9]
 
-    # Wind curtailment
+    # wind curtailment
     var = 'wind absolute curt' # variable 
     x_name = "wind" # primary index
     gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
@@ -64,13 +87,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
     x_share_df.to_csv("MESSAGEix_GLOBIOM/wind_shares.csv") # share of electricity
     gamma_ij_wind_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_wind.csv") # save series to .csv
 
-    # convert gamma_ij_wind_series into 2D array format:
-    gamma_ij_wind = convert_series_into_2D_matrix(gamma_ij_wind_series,
-                                                    lvls=[0,1,2,3,4,5,6],
-                                                    x_i_str="wind_curtailment_w",
-                                                    x_j_str="solar")
-
-    # Solar curtailment
+    # solar curtailment
     var = 'solar absolute curt' # variable
     x_name = "solar" # primary index
     gamma_ij_solar_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
@@ -80,17 +97,11 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
     x_share_df.to_csv("MESSAGEix_GLOBIOM/solar_shares.csv") # share of electricity
     gamma_ij_solar_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_solar.csv") # save series to .csv
 
-    # convert the series into a matrix for visualisation purposes:
-    gamma_ij_solar = convert_series_into_2D_matrix(gamma_ij_solar_series,
-                                                    lvls=[0,1,2,3,4,5,6],
-                                                    x_i_str="solar_curtailment_s",
-                                                    x_j_str="wind")
-
     ########################## Technology term ##############################
 
     renewables = ["wind","solar"]
     techs = efficiencies.keys()
-
+    beta_dict = {}
     for renewable in renewables:
         for tech in techs:
             scen_base = scenarios[tech][renewable][0] # base case
@@ -109,38 +120,52 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
 
             beta = technology_term(df_tech, 
                                     scen_base, scen_ref, scen_tech, 
-                                    tech_name = tech, tech_label = tech_labels[tech], tech_efficiency = efficiencies[tech], 
+                                    tech_name = tech, 
+                                    tech_label = tech_labels[tech], 
+                                    tech_efficiency = efficiencies[tech], 
+                                    demand = demand,
                                     renewable=renewable)
             
             beta.to_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv")
 
-            if renewable == "wind" and tech == "LDES":
-                beta_wind_ldes = beta.copy()        
-                beta_wind_ldes.index = gamma_ij_wind.index
-                beta_wind_ldes.columns = gamma_ij_wind.columns
-
-            elif renewable == "solar" and tech == "LDES":
-                beta_solar_ldes = beta.copy()
-                beta_solar_ldes.index = gamma_ij_solar.index
-                beta_solar_ldes.columns = gamma_ij_solar.columns
-
-            elif renewable == "wind" and tech == "SDES":
-                beta_wind_sdes = beta.copy()
-                beta_wind_sdes.index = gamma_ij_wind.index
-                beta_wind_sdes.columns = gamma_ij_wind.columns
-            
-            elif renewable == "solar" and tech == "SDES":
-                beta_solar_sdes = beta.copy()
-                beta_solar_sdes.index = gamma_ij_solar.index
-                beta_solar_sdes.columns = gamma_ij_solar.columns
-
             print(tech + " impact on " + renewable + " curtailment successfully parameterized!")
+
+            beta_dict[renewable, tech] = beta
 
     print("Parameterization done!")
 
     ############################# Update the excel file #########################################
-
+    # currently, the update of the Excel file can only be done for technoligies SDES and LDES.
     if update_excel_file:
+
+        # convert gamma_ij_wind_series and gamma_ij_solar into 2D array format:
+        gamma_ij_wind = convert_series_into_2D_matrix(gamma_ij_wind_series,
+                                                        lvls=[0,1,2,3,4,5,6],
+                                                        x_i_str="wind_curtailment_w",
+                                                        x_j_str="solar")
+
+
+        gamma_ij_solar = convert_series_into_2D_matrix(gamma_ij_solar_series,
+                                                        lvls=[0,1,2,3,4,5,6],
+                                                        x_i_str="solar_curtailment_s",
+                                                        x_j_str="wind")
+
+        beta_wind_ldes = beta_dict["wind","LDES"].copy()        
+        beta_wind_ldes.index = gamma_ij_wind.index
+        beta_wind_ldes.columns = gamma_ij_wind.columns
+
+        beta_solar_ldes = beta_dict["solar","LDES"].copy()
+        beta_solar_ldes.index = gamma_ij_solar.index
+        beta_solar_ldes.columns = gamma_ij_solar.columns
+
+        beta_wind_sdes = beta_dict["wind","SDES"].copy()
+        beta_wind_sdes.index = gamma_ij_wind.index
+        beta_wind_sdes.columns = gamma_ij_wind.columns
+    
+        beta_solar_sdes = beta_dict["solar","SDES"].copy()
+        beta_solar_sdes.index = gamma_ij_solar.index
+        beta_solar_sdes.columns = gamma_ij_solar.columns
+
         # Load the workbook using openpyxl
         workbook = load_workbook(file_path)
 
