@@ -184,20 +184,26 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
 
     """
 
-    # 1. Calculate curtailment for the different scenarios:
-    curtailment_variable = "absolute curt" # if tech_name == "transmission volume" else "absolute curt"
+    # configure naming convention of indexes. Here, index "i" refers to the primary variable and "j" the secondary. 
+    # I.e., if we are looking at wind curtailment, index "i" refers to the wind share and "j" to the solar share.
+    ij_names = {"wind": {"i_name":"w",
+                         "j_name":"s"},
+                "solar": {"i_name":"s",
+                          "j_name":"w"}}
+    globals().update(ij_names[renewable])
 
-    curt_base = df[base][renewable + " " + curtailment_variable] # curtailment in the base scenario
-    curt_A = df[ref_scenario][renewable + " " + curtailment_variable] # curtailment in the scenario w/o the technology
-    curt_B = df[tech_scenario][renewable + " " + curtailment_variable] # curtailment in the scenario w/ the technology
+    # 1. Calculate curtailment for the different scenarios:
+    curt_base = df[base][renewable + " absolute curt"] # curtailment in the base scenario
+    curt_A = df[ref_scenario][renewable + " absolute curt"] # curtailment in the scenario w/o the technology
+    curt_B = df[tech_scenario][renewable + " absolute curt"] # curtailment in the scenario w/ the technology
     
     # 2. calculate the activity of the technology (including energy losses):
     act = df[tech_scenario][tech_name + " " + tech_label]/tech_efficiency # in case of energy storage, tech_efficiency is the round-trip efficiency
 
     if tech_name == "transmission":
         base_transmission = df[base][tech_name + " " + tech_label]/tech_efficiency # base transmission volume
-        transmission_expansion = act - base_transmission # subtracting the base transmission capacity such that the "act" variable corresponds to the transmission expansion
-        normalized_transmission_expansion = transmission_expansion/base_transmission*100 # normalized transmission expansion
+        transmission_expansion = act - base_transmission # subtracting the base transmission volume such that the "act" variable corresponds to the transmission expansion
+        normalized_transmission_expansion = transmission_expansion/base_transmission*100 # normalized transmission expansion in percentage of base transmission
         act = normalized_transmission_expansion 
 
     # If we are looking at energy curtailment from solar PV, we need to reorder the indexes:
@@ -208,9 +214,18 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
         act = act.reorder_levels([1,0]).sort_index()
 
     # 3. calculate the curtailment reduction/increase per activity of the considered technology
-    delta_curt_AB = curt_A - curt_B # difference in curtailment between the scenario w/o and w/ the technology 
+    delta_curt_AB = curt_B - curt_A # difference in curtailment between the scenario w/o and w/ the technology 
     if tech_name == "transmission":
         delta_curt_AB = delta_curt_AB/demand*100 # we normalize the curtailment reduction by the demand
+
+    activity_threshold = 0.01 # we only consider the impact of the technology if the activity is above this threshold
+    act_norm = act/demand*100 # normalized activity in percentage of demand
+    act = act.where(act_norm >= activity_threshold)
+
+    # if tech_name == "LDES":
+    #     print("base: ",curt_base.loc[0.9,0.1]/demand*100)
+    #     print("ref: ",curt_A.loc[0.9,0.1]/demand*100)
+    #     print("LDES: ", curt_B.loc[0.9,0.1]/demand*100)
 
     relative_curtailment_reduction = delta_curt_AB/act
     # for transmission, we calculate the curtailment reduction [% of demand] per transmission expansion [% of base transmission]
@@ -229,28 +244,55 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
     x_js = relative_curtailment_reduction.index.get_level_values(0).unique()
     x_is = relative_curtailment_reduction.index.get_level_values(1).unique()
 
-    beta = pd.DataFrame(index=x_js,columns=x_is) # curtailment reduction per activity of the considered technology
-    beta.loc[:,:] = np.nan
-    
-    for j in range(len(x_js)): # solar index
+    beta_marginal = pd.DataFrame(index=x_js,columns=x_is) # curtailment reduction per activity of the considered technology
+    beta_marginal.loc[:,:] = np.nan
+    for j in range(len(x_js)): # secondary axis
         x_j = x_js[j]
-        for i in range(len(x_is)): # wind index
+        for i in range(len(x_is)): # primary axis
             x_i = x_is[i]
             if (x_j,x_i) in relative_curtailment_reduction.index:
-                beta.loc[x_j,x_i] = relative_curtailment_reduction.loc[x_j,x_i]
+                
+                if j == 0:
+                    if i == 0:
+                        beta_marginal.loc[x_j,x_i] = relative_curtailment_reduction.loc[x_j,x_i]
+                    elif i > 0:
+                        beta_marginal.loc[x_j,x_i] = relative_curtailment_reduction.loc[x_j,x_i] - relative_curtailment_reduction.loc[x_j,x_is[i-1]]
+            
+                if j > 0:
+                    beta_marginal.loc[x_j,x_i] = relative_curtailment_reduction.loc[x_j,x_i] - relative_curtailment_reduction.loc[x_js[j-1],x_i]
+                
+    beta_marginal_ji = beta_marginal.loc[x_js[1]:,:].diff(axis=1)
+    beta_marginal_ji.loc[:,x_is[0]] = beta_marginal.loc[:,x_is[0]]
+    beta_marginal.loc[x_js[1]:,:] = beta_marginal_ji
 
-    return beta 
+    beta_to_message = {}
+    beta_for_comparison = {}
+    for j in range(len(x_js)):
+        x_j = x_js[j]
+        for i in range(len(x_is)):
+            x_i = x_is[i]
+            if (x_j,x_i) in relative_curtailment_reduction.index:
+                beta_to_message[renewable + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = beta_marginal.loc[x_j,x_i]
+                beta_for_comparison[renewable + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = relative_curtailment_reduction.loc[x_j,x_i]
+
+    # convert dictionaries to pandas series
+    beta_series_1 = pd.Series(beta_to_message)
+    beta_series_2 = pd.Series(beta_for_comparison)
+    
+    return beta_series_1, beta_series_2
 
 def convert_series_into_2D_matrix(series,lvls,x_i_str,x_j_str):
     curtailment_df = pd.DataFrame(index=lvls)
-    for ind in curtailment_df.index:
+    for ind in lvls:
         df_curt = series.loc[series.index.str.contains(x_i_str[0] + str(ind))]
         length = len(df_curt)
-        length_dif = length - len(curtailment_df.index)
+        length_dif = length - len(lvls)
         if length_dif < 0:
             for i in range(abs(length_dif)):
                 bin_add = x_i_str + str(ind) + x_j_str[0] + str(length + i) 
                 df_curt_T = df_curt.T
                 df_curt_T[bin_add] = np.nan
+                df_curt = df_curt_T.T
+        
         curtailment_df[ind] = df_curt.values
     return curtailment_df

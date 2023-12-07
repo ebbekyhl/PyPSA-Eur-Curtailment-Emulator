@@ -20,20 +20,7 @@ def include_base_curtailment(renewable,primary_resource,secondary_resource,deman
     filenames = {"wind":"gamma_ij_wind",
                  "solar":"gamma_ij_solar"}
     gamma_ij = pd.read_csv("MESSAGEix_GLOBIOM/" + filenames[renewable] + ".csv",index_col=0)
-    gamma_ij["ind"] = gamma_ij.index
-    gamma_ij["ws_ind"] = gamma_ij.ind.str.split("_",expand=True)[2]
-    if renewable == "wind":
-        gamma_ij["solar"] = gamma_ij["ws_ind"].str.split("s",expand=True)[1].astype(int)
-        gamma_ij["w_ind"] = gamma_ij["ws_ind"].str.split("s",expand=True)[0]
-        gamma_ij["wind"] = gamma_ij["w_ind"].str.split("w",expand=True)[1].astype(int)
-        gamma_ij.drop(columns=["ind","ws_ind","w_ind"],inplace=True)
-        gamma_ij.set_index(["solar","wind"],inplace=True)
-    elif renewable == "solar":
-        gamma_ij["wind"] = gamma_ij["ws_ind"].str.split("w",expand=True)[1].astype(int)
-        gamma_ij["s_ind"] = gamma_ij["ws_ind"].str.split("w",expand=True)[0]
-        gamma_ij["solar"] = gamma_ij["s_ind"].str.split("s",expand=True)[1].astype(int)
-        gamma_ij.drop(columns=["ind","ws_ind","s_ind"],inplace=True)
-        gamma_ij.set_index(["wind","solar"],inplace=True)
+    gamma_ij = convert_index(gamma_ij,renewable)
 
     phi_i = [0, 0.1, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9]
     phi_j = [0.1, 0.3, 0.4, 0.5, 0.6, 0.7]
@@ -69,14 +56,14 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
 
         if act_tech == 0:
             tech_term_sum[tech] = 0
-            # print("No activity for " + tech + " . Skipping...")
             continue
 
-        # print("Calculating tech term for " + tech + " ...")
-        # Read beta coefficients
-        beta_tech_renewable = pd.read_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv",index_col=0)
-        beta_tech_renewable.columns = beta_tech_renewable.columns.astype(float)
-        beta_tech_renewable.index = beta_tech_renewable.index.astype(float)
+        df = pd.read_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv",index_col=0)
+        df = convert_index(df,renewable)
+        # convert multiindex dataframe to 2D array
+        df = df.unstack()
+        df.index = [0.1,0.3,0.4,0.5,0.6,0.7,0.9]
+        df.columns = [0.1,0.3,0.4,0.5,0.6,0.7,0.9]
 
         # tech term 
         curtailment_tech_ij = {}
@@ -85,67 +72,56 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
         C = primary_resource
         D = secondary_resource
 
-        N = len(beta_tech_renewable.columns)
-        M = len(beta_tech_renewable.index)
+        N = len(df.columns)
+        M = len(df.index)
         for i in range(1,N+1):
             for j in range(1,M+1):
 
                 x_i_lower = bins[i-1] 
-                x_i_upper = bins[i]
+                # x_i_upper = bins[i]
 
                 x_j_lower = bins[j-1] 
-                x_j_upper = bins[j]
+                # x_j_upper = bins[j]
 
-                bounds = {1:7,2:7,3:7,4:6,5:6,6:5,7:3,}
-                bound_i = i == bounds[j] # upper bound of the i-coordinate of the considered bin
-                bound_j = j == bounds[i] # upper bound of the j-coordinate of the considered bin
-                bound_diag = round(bins[i] + bins[j],2) >= 1.3 # diagonal boundary of scenarios corresponding to the 130% VRE share cutouff
+                # bounds = {1:7,2:7,3:7,4:6,5:6,6:5,7:3,}
+                # bound_i = i == bounds[j] # upper bound of the i-coordinate of the considered bin
+                # bound_j = j == bounds[i] # upper bound of the j-coordinate of the considered bin
+                # bound_diag = round(bins[i] + bins[j],2) >= 1.3 # diagonal boundary of scenarios corresponding to the 130% VRE share cutouff
 
-                # Four conditions must be True for the beta coefficient to be applied
+                # Two conditions must be True for the beta coefficient to be applied
                 
                 # 1. primary resource lower bound
-                condition_i_lower = C >= x_i_lower*demand # primary resource should be equal to or greater than the i-coordinate of the considered bin
+                condition_i_lower = C >= x_i_lower*demand # primary resource should be greater than or equal to the i-coordinate of the considered bin
                 
-                # 2. primary resource upper bound
-                condition_i_upper = C < x_i_upper*demand if not bound_i and not bound_diag else True 
-                
-                # 3. + 4. secondary resource lower and upper bounds
-                if j == 1:
-                    condition_j_lower = D > 0 
-                    condition_j_upper = D <= x_j_upper*demand if not bound_j and not bound_diag else True 
-                elif j == 2:
-                    condition_j_lower = D > x_j_lower*demand # secondary resource should be equal to or greater than the j-coordinate of the considered bin
-                    condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
-                else:
-                    condition_j_lower = D >= x_j_lower*demand 
-                    condition_j_upper = D < x_j_upper*demand if not bound_j and not bound_diag else True 
+                # 2. secondary resource lower bound
+                condition_j_lower = D > x_j_lower*demand # secondary resource should be greater than or equal to the j-coordinate of the considered bin
 
-                conditions = condition_i_lower and condition_j_lower and condition_i_upper and condition_j_upper
+                conditions = condition_i_lower and condition_j_lower
 
                 if conditions:
-                    beta_ij = beta_tech_renewable.loc[bins[j],bins[i]]
+                    beta_ij = df.loc[bins[j],bins[i]]
                     curtailment_tech_ij[j,i] = beta_ij*act_tech
 
-        if len(curtailment_tech_ij) > 0:
-            tech_term_series = pd.Series(curtailment_tech_ij).fillna(0)
-        
-            # count number of non-zero values
-            tech_terms = tech_term_series[tech_term_series != 0]
-            if len(tech_terms) > 1:
-                # if there are multiple values, take the value at the highest primary resource level           
-                # first, reorder the index to have the primary resource level as the first level
-                tech_terms = tech_terms.swaplevel(0,1)
-
-                # then take the value at the highest primary resource level
-                tech_terms_max_coord = max(tech_terms.index.get_level_values(0))
-                
-                tech_term_sum[tech] = tech_terms.loc[tech_terms_max_coord,:].sum()
-
-            else:
-                tech_term_sum[tech] = tech_term_series.sum()
-
-        else:
-            print("Conditions not fulfilled for " + tech + " ," + renewable + " (" + str(D) + "," + str(C) + ") !")
-            tech_term_sum[tech] = 0
+        tech_term_series = pd.Series(curtailment_tech_ij).fillna(0)
+        tech_term_sum[tech] = tech_term_series.sum()
 
     return tech_term_sum
+
+def convert_index(df,renewable):
+    df["ind"] = df.index
+    df["ws_ind"] = df.ind.str.split("_",expand=True)[2]
+    if renewable == "wind":
+        df["solar"] = df["ws_ind"].str.split("s",expand=True)[1].astype(int)
+        df["w_ind"] = df["ws_ind"].str.split("s",expand=True)[0]
+        df["wind"] = df["w_ind"].str.split("w",expand=True)[1].astype(int)
+        df.drop(columns=["ind","ws_ind","w_ind"],inplace=True)
+        df.set_index(["solar","wind"],inplace=True)
+    elif renewable == "solar":
+        df["wind"] = df["ws_ind"].str.split("w",expand=True)[1].astype(int)
+        df["s_ind"] = df["ws_ind"].str.split("w",expand=True)[0]
+        df["solar"] = df["s_ind"].str.split("s",expand=True)[1].astype(int)
+        df.drop(columns=["ind","ws_ind","s_ind"],inplace=True)
+        df.set_index(["wind","solar"],inplace=True)
+
+    return df
+

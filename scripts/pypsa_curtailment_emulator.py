@@ -118,19 +118,27 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
                                             directory=RDIR,
                                             plot=False)
 
-            beta = technology_term(df_tech, 
-                                    scen_base, scen_ref, scen_tech, 
-                                    tech_name = tech, 
-                                    tech_label = tech_labels[tech], 
-                                    tech_efficiency = efficiencies[tech], 
-                                    demand = demand,
-                                    renewable=renewable)
-            
-            beta.to_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv")
+            beta1,beta2 = technology_term(df_tech, 
+                                        scen_base, scen_ref, scen_tech, 
+                                        tech_name = tech, 
+                                        tech_label = tech_labels[tech], 
+                                        tech_efficiency = efficiencies[tech], 
+                                        demand = demand,
+                                        renewable=renewable)
+                
+            beta1.to_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv")
+            beta2.to_csv("results/beta_" + tech + "_" + renewable + ".csv")
 
             print(tech + " impact on " + renewable + " curtailment successfully parameterized!")
 
-            beta_dict[renewable, tech] = beta
+            # convert gamma_ij_wind_series and gamma_ij_solar into 2D array format:
+            renewable_c = {"wind":"solar","solar":"wind"}
+            beta_2d = convert_series_into_2D_matrix(beta1,
+                                                    lvls=[0,1,2,3,4,5,6],
+                                                    x_i_str=renewable + "_curtailment_" + renewable[0],
+                                                    x_j_str=renewable_c[renewable])
+            
+            beta_dict[renewable, tech] = beta_2d
 
     print("Parameterization done!")
 
@@ -341,3 +349,45 @@ def test_pypsa_emulator(file_path, wind_res,solar_res,ldes,sdes, curtailment_typ
     solar_curtailment_series = pd.Series(solar_curtailment_dict)
 
     return wind_curtailment_series, solar_curtailment_series
+
+def plot_tech_impact(tech, renewable):
+    beta = pd.read_csv("results/beta_" + tech + "_" + renewable + ".csv",index_col=0)
+    renewable_c = {"solar":"wind",
+                   "wind":"solar"}
+    
+    beta_array = convert_series_into_2D_matrix(beta,
+                                                lvls=[0,1,2,3,4,5,6],
+                                                x_i_str=renewable + "_curtailment_" + renewable[0],
+                                                x_j_str=renewable_c[renewable])
+    if renewable == "solar":
+        beta_array = beta_array.T
+
+    # color plot of beta_sdes_2d_array
+    fig, ax = plt.subplots(figsize=(8,6))
+
+    im = ax.pcolormesh(beta_array.index, 
+                    beta_array.columns, 
+                    beta_array.values, 
+                    cmap="Blues_r",zorder=0)
+
+    cb = fig.colorbar(im, ax=ax)
+    cb.set_label(tech + " impact on curtailment [-]")
+    # set xticklabels 
+    ticklabels = [">0", "10-30", "30-40", "40-50", "50-60", "60-70", ">70"]
+    ax.set_xticks(range(len(ticklabels)))
+    ax.set_xticklabels(ticklabels,rotation=45)
+    ax.set_yticks(range(len(ticklabels)))
+    ax.set_yticklabels(ticklabels)
+    ax.set_xlabel("wind share (%)",fontsize=18)
+    ax.set_ylabel("solar share (%)",fontsize=18)
+
+    for i in range(len(beta_array.index)):
+        for k in range(len(beta_array.columns)):
+            c = beta_array.iloc[i,k]
+            if c != '' and c != np.nan and np.abs(c) > 0:
+                ax.text(beta_array.columns[k], 
+                        beta_array.index[i], 
+                        "{:.3f}".format(c), 
+                        va='center', ha='center')
+                
+    return fig, ax, beta_array
