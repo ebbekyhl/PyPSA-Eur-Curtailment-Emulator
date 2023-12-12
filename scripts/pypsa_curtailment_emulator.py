@@ -20,7 +20,7 @@ from scripts.curtailment_parameterization import base_curtailment, technology_te
 import numpy as np
 import pandas as pd
 
-def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_excel_file=False):
+def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, continuous_axis, update_excel_file=False):
     """
     This function performs the parameterization of the curtailment, first by deriving the base term of the curtailment function 
     (i.e., the curtailment as function of the primary and secondary resource) and second by deriving the technology term of the
@@ -68,7 +68,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
 
     base_case = scenarios["base"]
     ################## BASE CURTAILMENT ##############################
-
+    print("Launching parameterization using " + continuous_axis + " axis as continuous resource...")
     df = read_and_plot_scenarios([base_case],
                                     variables_input = variables, 
                                     directory=RDIR,
@@ -80,7 +80,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, update_
     # wind curtailment
     var = 'wind absolute curt' # variable 
     x_name = "wind" # primary index
-    gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
+    gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis) # base curtailment parameters
     print("Wind curtailment successfully parameterized! Proceeding to solar curtailment...")
 
     # save the parameters to the MESSAGEix-GLOBIOM subfolder (for later use):
@@ -281,6 +281,11 @@ def run_pypsa_emulator(file_path,curtailment_type,wind_res,solar_res,ldes,sdes):
 
     return result
 
+def mask_df(df,threshold):
+    df_masked = df.copy()
+    df_masked[df_masked.values > threshold] = np.nan
+    return df_masked
+
 def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.5):
     # convert multiindex dataframe to 2D array
     df = series.unstack()
@@ -292,7 +297,8 @@ def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.
     # plot
     cmap = "Reds"
     fig, ax = plt.subplots()
-    ax.pcolormesh(df.columns,df.index,df, cmap = cmap, vmin = 0, vmax = vmax)
+    ax.pcolormesh(df.columns,df.index,df, cmap = cmap, vmin = 0, vmax = vmax,zorder=0)
+
     ax.set_xlabel("wind share (% of el. demand)")
     ax.set_ylabel("solar PV share (% of el. demand)")
 

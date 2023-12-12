@@ -16,7 +16,7 @@ of a given technology.
 import pandas as pd
 import numpy as np
 
-def include_base_curtailment(renewable,primary_resource,secondary_resource,demand):
+def include_base_curtailment(renewable,primary_resource,secondary_resource,demand,continuous_axis="secondary"):
     filenames = {"wind":"gamma_ij_wind",
                  "solar":"gamma_ij_solar"}
     gamma_ij = pd.read_csv("MESSAGEix_GLOBIOM/" + filenames[renewable] + ".csv",index_col=0)
@@ -37,14 +37,23 @@ def include_base_curtailment(renewable,primary_resource,secondary_resource,deman
     curtailment_ij = {}
     for i in range(len(phi_i)-1):
         for j in range(len(phi_j)):
+
             if (j+1,i) in gamma_ij.index:
-                curtailment = gamma_ij.loc[j+1,i]*(secondary_resource - phi_j[j]*demand) if secondary_resource > phi_j[j]*demand else 0
-                curtailment_ij[j,i] = curtailment if primary_resource >= phi_i[i+1]*demand else 0
+                phi_i_limit = phi_i[i]
+
+                if continuous_axis == "secondary":
+                    curtailment = gamma_ij.loc[j+1,i]*(secondary_resource - phi_j[j]*demand) if secondary_resource > phi_j[j]*demand else 0
+                elif continuous_axis == "primary":
+                    curtailment = gamma_ij.loc[j+1,i]*(primary_resource - phi_i[i]*demand) if secondary_resource > phi_j[j]*demand else 0
+
+                curtailment_ij[j,i] = curtailment if primary_resource > phi_i_limit*demand else 0
+    
     try:
         curtailment_ij_df = pd.DataFrame.from_dict(curtailment_ij).T.sort_index()
         secondary_term_sum = curtailment_ij_df.sum()
+        # print(curtailment_ij)
     except:
-        secondary_term_sum = 0
+      secondary_term_sum = 0
 
     return primary_term_sum, secondary_term_sum
 
@@ -76,18 +85,9 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
         M = len(df.index)
         for i in range(1,N+1):
             for j in range(1,M+1):
-
                 x_i_lower = bins[i-1] 
-                # x_i_upper = bins[i]
-
                 x_j_lower = bins[j-1] 
-                # x_j_upper = bins[j]
-
-                # bounds = {1:7,2:7,3:7,4:6,5:6,6:5,7:3,}
-                # bound_i = i == bounds[j] # upper bound of the i-coordinate of the considered bin
-                # bound_j = j == bounds[i] # upper bound of the j-coordinate of the considered bin
-                # bound_diag = round(bins[i] + bins[j],2) >= 1.3 # diagonal boundary of scenarios corresponding to the 130% VRE share cutouff
-
+                
                 # Two conditions must be True for the beta coefficient to be applied
                 
                 # 1. primary resource lower bound

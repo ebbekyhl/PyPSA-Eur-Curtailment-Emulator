@@ -21,7 +21,7 @@ It contains the two key functions:
 import pandas as pd
 import numpy as np
 
-def base_curtailment(df,var,data_points,demand,x_name,base_name):
+def base_curtailment(df,var,data_points,demand,x_name,base_name,continuous_axis="secondary"):
     """
     This function calculates the parameters used to represent the 
     base curtailment of wind energy and solar PV resources.
@@ -38,6 +38,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
         demand = electricity demand (including both exogenous and endogenous)
         x_name = name of the renewbale energy source considered (either "wind" or "solar")
         base_name = name of the base scenario 
+        continuous_axis = which axis is continuous (either "primary" or "secondary") of the secondary term
     
     Outputs:
         gamma_ij_series = marginal curtailment rates
@@ -51,9 +52,6 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
                 "solar": {"i_name":"s",
                           "j_name":"w"}}
     globals().update(ij_names[x_name])
-
-    # Organize data by penetration levels
-    lvls = list(df[base_name][var].index.unique(level=0)) # bins used in PyPSA-Eur
 
     data_dic = {}
     if x_name == "solar":
@@ -84,6 +82,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
     curtailment_rate_j = {} # curtailment rate in the x_j-direction
     marg_curtailment_rate_i = {} # marginal curtailment rate in the x_i-direction
     marg_curtailment_rate_j = {} # marginal curtailment rate in the x_j-direction
+    
     gamma_ij = {} # resulting marginal curtailment parameters 
 
     for j in range(len(data_points)): # loop over the data points in the j-direction 
@@ -134,14 +133,35 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
     ##### proportional to the solar penetration. To make this representation compatible with
     ##### the desired format, we need to calculate how much this proportion changes when 
     ##### moving in the wind-direction. 
-    marg_curtailment_rate_j_copy = marg_curtailment_rate_j.copy()
+
+    if continuous_axis == "secondary":
+        marg_ij = marg_curtailment_rate_j.copy()
+        marg_j_copy = marg_ij.copy()
+
+    elif continuous_axis == "primary":
+        marg_ji = marg_curtailment_rate_i.copy()
+        marg_j_copy = marg_ji.copy()
+
+    # bins used in PyPSA-Eur
+    lvls = list(df[base_name][var].index.unique(level=0)) 
+
     for j in range(len(lvls)):
-        x_j = f.columns[j] 
+        x_j = f.columns[j] if continuous_axis == "secondary" else lvls[j]
         for i in range(len(lvls)): 
             x_i = lvls[i]
-            if i > 0 and j > 0:
-                x_im1 = lvls[i-1]
-                marg_curtailment_rate_j_copy[x_j,x_i] = marg_curtailment_rate_j[x_j,x_i] - marg_curtailment_rate_j[x_j,x_im1] 
+
+            condition_i = True # if continuous_axis == "secondary" else True
+            condition_j = j > 0
+
+            if continuous_axis == "secondary" and condition_i and condition_j:
+                x_im1 = lvls[i-1] if i > 0 else 0
+                marg_j_copy[x_j,x_i] = marg_ij[x_j,x_i] - marg_ij[x_j,x_im1] 
+
+            elif continuous_axis == "primary" and condition_i and condition_j:
+                x_jm1 = lvls[j-1]
+                marg_j_copy[x_j,x_i] = marg_ji[x_j,x_i] - marg_ji[x_jm1,x_i]
+            else: 
+                marg_j_copy[x_j,x_i] = np.nan
 
     # 3) Allocate the calculated marginal curtailment rates
     for j in range(len(lvls)):
@@ -158,7 +178,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name):
            
             elif j > 0: # additional curtailment accounting for solar penetration 
                 x_jp1 = f.columns[j+1]
-                gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_curtailment_rate_j_copy[(x_jp1, x_i)]
+                gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_j_copy[(x_jp1, x_i)]
                 x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
             
     # convert dictionaries to pandas series
