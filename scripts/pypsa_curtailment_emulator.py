@@ -35,7 +35,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, continu
         update_excel_file [bool] = if True, the excel file will be updated with the new parameters
 
     Outputs:
-        Outputs are saved to the MESSAGEix_GLOBIOM subfolder: 
+        Outputs are saved to the parameters subfolder: 
             - gamma_ij_wind.csv: base term of the wind curtailment function
             - gamma_ij_solar.csv: base term of the solar curtailment function
             - beta_{tech}_wind.csv: technology term of the wind curtailment function 
@@ -77,25 +77,58 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, continu
     demand = df[base_case]["total demand"].iloc[0]*1e6 # total demand in MWh - here assuming that the demand is the same for all scenarios!
     bin_lvls = [0,0.1,0.3,0.4,0.5,0.6,0.7,0.9]
 
+    if continuous_axis == "both":
+        continuous_axis1 = "primary"
+        continuous_axis2 = "secondary"
+        add_name1 = "_primary"
+        add_name2 = "_secondary"
+    else:
+        continuous_axis1 = continuous_axis
+        add_name1 = ""
+
     # wind curtailment
     var = 'wind absolute curt' # variable 
     x_name = "wind" # primary index
-    gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis) # base curtailment parameters
-    print("Wind curtailment successfully parameterized! Proceeding to solar curtailment...")
+    gamma_ij_wind_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis1) # base curtailment parameters
+    
+    # save the parameters to the parameters subfolder (for later use):
+    x_share_df.to_csv("parameters/wind_shares.csv") # share of electricity
+    gamma_ij_wind_series.to_csv("parameters/gamma_ij_wind" + add_name1 + ".csv") # save series to .csv
 
-    # save the parameters to the MESSAGEix-GLOBIOM subfolder (for later use):
-    x_share_df.to_csv("MESSAGEix_GLOBIOM/wind_shares.csv") # share of electricity
-    gamma_ij_wind_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_wind.csv") # save series to .csv
+    gamma_ij_wind_2D = convert_series_into_2D_matrix(gamma_ij_wind_series,
+                                                        lvls=[0,1,2,3,4,5,6],
+                                                        x_i_str="wind_curtailment_w",
+                                                        x_j_str="solar")
+    
+    gamma_ij_wind_2D.to_csv("results/gamma_ij_wind" + add_name1 + ".csv")
+
+    if continuous_axis == "both":
+        gamma_ij_wind_series2, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis2) # base curtailment parameters
+        gamma_ij_wind_series2.to_csv("parameters/gamma_ij_wind" + add_name2 + ".csv") # save series to .csv
+
+        gamma_ij_wind_2_2D = convert_series_into_2D_matrix(gamma_ij_wind_series2,
+                                                            lvls=[0,1,2,3,4,5,6],
+                                                            x_i_str="wind_curtailment_w",
+                                                            x_j_str="solar")
+
+        gamma_ij_wind_2_2D.to_csv("results/gamma_ij_wind" + add_name2 + ".csv")
+
+    print("Wind curtailment successfully parameterized! Proceeding to solar curtailment...")
 
     # solar curtailment
     var = 'solar absolute curt' # variable
     x_name = "solar" # primary index
-    gamma_ij_solar_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case) # base curtailment parameters
-    print("Solar curtailment successfully parameterized! Proceeding to technology term...")
-
+    gamma_ij_solar_series, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis1) # base curtailment parameters
+    
     # save to .csv:
-    x_share_df.to_csv("MESSAGEix_GLOBIOM/solar_shares.csv") # share of electricity
-    gamma_ij_solar_series.to_csv("MESSAGEix_GLOBIOM/gamma_ij_solar.csv") # save series to .csv
+    x_share_df.to_csv("parameters/solar_shares.csv") # share of electricity
+    gamma_ij_solar_series.to_csv("parameters/gamma_ij_solar" + add_name1 + ".csv") # save series to .csv
+
+    if continuous_axis == "both":
+        gamma_ij_solar_series2, x_share_df = base_curtailment(df,var,bin_lvls,demand,x_name,base_case,continuous_axis2) # base curtailment parameters
+        gamma_ij_solar_series2.to_csv("parameters/gamma_ij_solar" + add_name2 + ".csv") # save series to .csv
+
+    print("Solar curtailment successfully parameterized! Proceeding to technology term...")
 
     ########################## Technology term ##############################
 
@@ -126,7 +159,7 @@ def create_emulator(scenarios, RDIR, file_path,efficiencies,tech_labels, continu
                                         demand = demand,
                                         renewable=renewable)
                 
-            beta1.to_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv")
+            beta1.to_csv("parameters/beta_" + tech + "_" + renewable + ".csv")
             beta2.to_csv("results/beta_" + tech + "_" + renewable + ".csv")
 
             print(tech + " impact on " + renewable + " curtailment successfully parameterized!")
@@ -251,6 +284,9 @@ def read_excel_outputs(file_path, output_address):
     return output1, output2
 
 def run_pypsa_emulator(file_path,curtailment_type,wind_res,solar_res,ldes,sdes):
+    """ Function that updates and reads Excel sheet.
+    This function is no longer used.
+    """
     
     import time
 
@@ -286,7 +322,7 @@ def mask_df(df,threshold):
     df_masked[df_masked.values > threshold] = np.nan
     return df_masked
 
-def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.5):
+def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.5, write_values=False):
     # convert multiindex dataframe to 2D array
     df = series.unstack()
     df = df.iloc[::-1]
@@ -310,8 +346,7 @@ def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.
                                       vmax = vmax))
     cbar.ax.set_ylabel(renewable + ' curtailment (% of ' + cbar_label + ")")
 
-    # add cell values to the plot if the dataframe is not too big (otherwise, it gets messy):
-    if len(df.index) <= 15:
+    if write_values: #len(df.index) <= 15:
         for i in range(len(df.index)):
             for j in range(len(df.columns)):
                 c = df.iloc[i,j]
@@ -320,27 +355,17 @@ def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.
 
     return fig, ax, df
 
-def estimate_calculation_time(N):
-    # reference timing
-    N_ref = 324. # number of iterations if range = (10,100) and stepsize = 5
-    timing_ref = 18. # minutes (including 2sec wait time between each iteration)
-    calculation_rate = timing_ref/N_ref # seconds per iteration
-
-    timing = calculation_rate*N # timing in minutes
-
-    timing = round(timing,1)
-    return timing
-
 def test_pypsa_emulator(file_path, wind_res,solar_res,ldes,sdes, curtailment_type="resources"):
+    """
+    Function that reads Excel sheet and evaluatesa the equations.
+    This function is no longer used.
+    """
+    
     # wind_res [list] = wind resources in percentage of demand (including curtailment)
     # solar_res [list] = solar PV resources percentage of demand (including curtailment)
     # ldes [scalar] = long-duration energy storage disptach as percentage of demand (including energy losses)
     # sdes [scalar]= short-duration energy storage dispatch as percentage of demand (including energy losses)
     # curtailment_type [string] = curtailment as percentage of demand ("demand") or renewable resources ("resources")
-
-    N = len(wind_res)*len(solar_res)
-    timing = estimate_calculation_time(N)
-    print("estimated timing: ", timing, " minute")
 
     wind_curtailment_dict = {}
     solar_curtailment_dict = {}
@@ -393,7 +418,7 @@ def plot_tech_impact(tech, renewable):
             if c != '' and c != np.nan and np.abs(c) > 0:
                 ax.text(beta_array.columns[k], 
                         beta_array.index[i], 
-                        "{:.3f}".format(c), 
+                        "{:.1f}".format(c), 
                         va='center', ha='center')
                 
     return fig, ax, beta_array

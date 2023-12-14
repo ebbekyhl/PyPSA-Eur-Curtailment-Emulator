@@ -16,44 +16,51 @@ of a given technology.
 import pandas as pd
 import numpy as np
 
-def include_base_curtailment(renewable,primary_resource,secondary_resource,demand,continuous_axis="secondary"):
+def include_base_curtailment(renewable,primary_resource,secondary_resource,demand,continuous_axis, scaling_p=1, scaling_s=0):
     filenames = {"wind":"gamma_ij_wind",
                  "solar":"gamma_ij_solar"}
-    gamma_ij = pd.read_csv("MESSAGEix_GLOBIOM/" + filenames[renewable] + ".csv",index_col=0)
-    gamma_ij = convert_index(gamma_ij,renewable)
-
-    phi_i = [0, 0.1, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9]
-    phi_j = [0.1, 0.3, 0.4, 0.5, 0.6, 0.7]
-
-    # term representing curtailment of the primary resource (disregarding the impact of the secondary resource)
-    curtailment_primary = {}
-    for i in range(len(phi_i)-1):
-        curtailment_primary[0,i] = gamma_ij.loc[0,i]*(primary_resource - phi_i[i]*demand) if primary_resource > phi_i[i]*demand else 0
-    curtailment_primary_df = pd.DataFrame.from_dict(curtailment_primary).T.sort_index()
     
-    primary_term_sum = curtailment_primary_df.sum() 
+    if continuous_axis == "both":
+        gamma_ij_p = pd.read_csv("parameters/" + filenames[renewable] + "_primary.csv",index_col=0)
+        gamma_ij_p = convert_index(gamma_ij_p,renewable)
+        gamma_ij_s = pd.read_csv("parameters/" + filenames[renewable] + "_secondary.csv",index_col=0)
+        gamma_ij_s = convert_index(gamma_ij_s,renewable)
+    else:
+        gamma_ij = pd.read_csv("parameters/" + filenames[renewable] + ".csv",index_col=0)
+        gamma_ij = convert_index(gamma_ij,renewable)
 
-    # term representing the impact of the secondary resource
+    phi = [0., 0.1, 0.3, 0.4, 0.5, 0.6, 0.7]
+    
+    if primary_resource < 0.1*demand:
+        primary_term_sum = 0
+        secondary_term_sum = 0
+        return primary_term_sum, secondary_term_sum
+
     curtailment_ij = {}
-    for i in range(len(phi_i)-1):
-        for j in range(len(phi_j)):
+    for i in range(len(phi)):
+        for j in range(len(phi)):
 
-            if (j+1,i) in gamma_ij.index:
-                phi_i_limit = phi_i[i]
+            if (j,i) in gamma_ij_p.index:
+                
+                if j == 0:
+                    curtailment_p = gamma_ij_p.loc[j,i]*(primary_resource - phi[i]*demand) if primary_resource > phi[i]*demand else 0
+                    curtailment_s = 0 # scaling_s*gamma_ij_s.loc[j,i]*(secondary_resource - phi[j]*demand) if (primary_resource > phi[i]*demand) and (secondary_resource > phi[j]*demand) else 0
+                elif j > 0:
+                    curtailment_p = scaling_p*gamma_ij_p.loc[j,i]*(primary_resource - phi[i]*demand) if (primary_resource > phi[i]*demand) and (secondary_resource > phi[j]*demand) else 0
+                    curtailment_s = scaling_s*gamma_ij_s.loc[j,i]*(secondary_resource - phi[j]*demand) if (primary_resource > phi[i]*demand) and (secondary_resource > phi[j]*demand) else 0
+                else:
+                    curtailment_p = 0
+                    curtailment_s = 0
+                
+                curtailment_ij[j,i] = curtailment_p + curtailment_s
 
-                if continuous_axis == "secondary":
-                    curtailment = gamma_ij.loc[j+1,i]*(secondary_resource - phi_j[j]*demand) if secondary_resource > phi_j[j]*demand else 0
-                elif continuous_axis == "primary":
-                    curtailment = gamma_ij.loc[j+1,i]*(primary_resource - phi_i[i]*demand) if secondary_resource > phi_j[j]*demand else 0
-
-                curtailment_ij[j,i] = curtailment if primary_resource > phi_i_limit*demand else 0
-    
     try:
         curtailment_ij_df = pd.DataFrame.from_dict(curtailment_ij).T.sort_index()
         secondary_term_sum = curtailment_ij_df.sum()
-        # print(curtailment_ij)
     except:
-      secondary_term_sum = 0
+        secondary_term_sum = 0
+
+    primary_term_sum = 0
 
     return primary_term_sum, secondary_term_sum
 
@@ -67,7 +74,7 @@ def include_tech_term(techs,act_techs,renewable,primary_resource,secondary_resou
             tech_term_sum[tech] = 0
             continue
 
-        df = pd.read_csv("MESSAGEix_GLOBIOM/beta_" + tech + "_" + renewable + ".csv",index_col=0)
+        df = pd.read_csv("parameters/beta_" + tech + "_" + renewable + ".csv",index_col=0)
         df = convert_index(df,renewable)
         # convert multiindex dataframe to 2D array
         df = df.unstack()

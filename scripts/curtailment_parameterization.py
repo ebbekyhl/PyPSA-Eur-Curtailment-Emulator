@@ -21,7 +21,7 @@ It contains the two key functions:
 import pandas as pd
 import numpy as np
 
-def base_curtailment(df,var,data_points,demand,x_name,base_name,continuous_axis="secondary"):
+def base_curtailment(df,var,data_points,demand,x_name,base_name, continuous_axis="secondary"):
     """
     This function calculates the parameters used to represent the 
     base curtailment of wind energy and solar PV resources.
@@ -128,12 +128,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name,continuous_axis=
             else:
                 marg_curtailment_rate_j[x_j, x_i] = np.nan
 
-    # calculate a marginal of the marginal_curtailment_rate_j in the x_i direction 
-    ##### Explanation: We now have a representation of how much the wind curtailment increases
-    ##### proportional to the solar penetration. To make this representation compatible with
-    ##### the desired format, we need to calculate how much this proportion changes when 
-    ##### moving in the wind-direction. 
-
+    # calculate marginal curtailment rate in the second direction
     if continuous_axis == "secondary":
         marg_ij = marg_curtailment_rate_j.copy()
         marg_j_copy = marg_ij.copy()
@@ -163,6 +158,21 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name,continuous_axis=
             else: 
                 marg_j_copy[x_j,x_i] = np.nan
 
+    if continuous_axis == "secondary":
+        for j in range(len(lvls)):
+            x_j = f.columns[j] 
+            for i in range(len(lvls)):
+                x_i = lvls[i]
+
+                # moving a share of the solar proportionalities from the second to the first row
+                share = 0 # 0.5 # this is to allocate a fraction of the increase in the first wind-row to the increase in solar (from 0 to 10%)
+                if j == 1:
+                    x_jp1 = f.columns[j+1]
+                    marg_j_copy[x_j,x_i] = share*marg_j_copy[x_jp1,x_i]
+
+                if j == 2:
+                    marg_j_copy[x_j,x_i] = (1-share)*marg_j_copy[x_j,x_i]
+
     # 3) Allocate the calculated marginal curtailment rates
     for j in range(len(lvls)):
         x_j = f.columns[j] 
@@ -172,15 +182,11 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name,continuous_axis=
             if np.isnan(marg_curtailment_rate_i[(x_j, x_i)]): # if the marginal curtailment rate is nan, we do not need to allocate it.
                 continue
             
-            elif j == 0: # base wind curtailment disregarding solar penetration
-                gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_curtailment_rate_i[(x_j, x_i)]
-                x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
-           
-            elif j > 0: # additional curtailment accounting for solar penetration 
-                x_jp1 = f.columns[j+1]
-                gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_j_copy[(x_jp1, x_i)]
-                x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
-            
+            x_jp1 = f.columns[j+1]
+            x_j_coord = x_j if continuous_axis == "primary" and j == 0 else x_jp1
+            x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
+            gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_j_copy[(x_j_coord, x_i)]
+
     # convert dictionaries to pandas series
     gamma_ij_series = pd.Series(gamma_ij)
     x_share_df_series = pd.Series(x_share)
