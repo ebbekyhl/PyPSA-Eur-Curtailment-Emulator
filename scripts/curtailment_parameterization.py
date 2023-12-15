@@ -174,6 +174,7 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name, continuous_axis
                     marg_j_copy[x_j,x_i] = (1-share)*marg_j_copy[x_j,x_i]
 
     # 3) Allocate the calculated marginal curtailment rates
+    bins = [0,0.1,0.3,0.4,0.5,0.6,0.7,0.9]
     for j in range(len(lvls)):
         x_j = f.columns[j] 
         for i in range(len(lvls)): 
@@ -184,7 +185,8 @@ def base_curtailment(df,var,data_points,demand,x_name,base_name, continuous_axis
             
             x_jp1 = f.columns[j+1]
             x_j_coord = x_j if continuous_axis == "primary" and j == 0 else x_jp1
-            x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_i 
+            x_im1 = bins[i]
+            x_share[x_name + "_curtailment_" + i_name + str(i) + j_name + str(j)] = x_im1 
             gamma_ij[x_name + "_curtailment_" + i_name +  str(i) + j_name + str(j)] = marg_j_copy[(x_j_coord, x_i)]
 
     # convert dictionaries to pandas series
@@ -224,9 +226,11 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
     curt_B = df[tech_scenario][renewable + " absolute curt"] # curtailment in the scenario w/ the technology
     
     # 2. calculate the activity of the technology (including energy losses):
+    # the units of storage dispath are MWh of electricity (in the discharging stage, accounting for energy conversion losses), 
+    # so we need to rewind to the charging stage by dividing by the round-trip efficiency
     act = df[tech_scenario][tech_name + " " + tech_label]/tech_efficiency # in case of energy storage, tech_efficiency is the round-trip efficiency
 
-    if tech_name == "transmission":
+    if tech_name == "transmission": # transmission expansion is calculated relative to the base transmission volume
         base_transmission = df[base][tech_name + " " + tech_label]/tech_efficiency # base transmission volume
         transmission_expansion = act - base_transmission # subtracting the base transmission volume such that the "act" variable corresponds to the transmission expansion
         normalized_transmission_expansion = transmission_expansion/base_transmission*100 # normalized transmission expansion in percentage of base transmission
@@ -248,11 +252,6 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
     act_norm = act/demand*100 # normalized activity in percentage of demand
     act = act.where(act_norm >= activity_threshold)
 
-    # if tech_name == "LDES":
-    #     print("base: ",curt_base.loc[0.9,0.1]/demand*100)
-    #     print("ref: ",curt_A.loc[0.9,0.1]/demand*100)
-    #     print("LDES: ", curt_B.loc[0.9,0.1]/demand*100)
-
     relative_curtailment_reduction = delta_curt_AB/act
     # for transmission, we calculate the curtailment reduction [% of demand] per transmission expansion [% of base transmission]
     # for every other case, we calculate the curtailment reduction [MWh] per activity of the technology [MWh]
@@ -265,7 +264,7 @@ def technology_term(df, base, ref_scenario, tech_scenario, tech_name, tech_label
     # Thus, we need to scale the curtailment reduction such that we can represent it as a counteracting term to 
     # the base curtailment. Note that base and ref_scenario are the same for SDES. 
     relative_curtailment_reduction = relative_curtailment_reduction/curt_A*curt_base
-    relative_curtailment_reduction[0.1,0.1] = 0 # curtailment is 0, so the impact is also 0
+    relative_curtailment_reduction[0.1,0.1] = 0
 
     x_js = relative_curtailment_reduction.index.get_level_values(0).unique()
     x_is = relative_curtailment_reduction.index.get_level_values(1).unique()

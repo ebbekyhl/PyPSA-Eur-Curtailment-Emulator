@@ -20,7 +20,7 @@ The metrics include the following:
     - wind and solar PV resources relative to the electricity demand (%)
     - wind and solar PV curtailment (TWh)
     - wind and solar PV curtailment relative to resources (%)
-    - SDES and LDES storage dispatch (TWh)
+    - SDES and LDES storage dispatch (MWh)
     - SDES and LDES storage dispatch relative to the electricity demand (%)
     - SDES and LDES storage energy capacity (TWh)
     - SDES and LDES storage discharge capacity (GW)
@@ -479,8 +479,10 @@ for scen in scens:
     abs_storage_ldes = {}
     LDES_discharge_capacity = {}
     LDES_energy_capacity = {}
+    # LDES_capacity_factor = {}
     SDES_discharge_capacity = {}
     SDES_energy_capacity = {}
+    # SDES_capacity_factor = {}
     trans_vol = {}
     system_efficiency = {}
     system_cost = {}
