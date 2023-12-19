@@ -38,10 +38,6 @@ def plot_gen_share_and_curtailment(scen, df_generation, df_curtailment, curtailm
     backup_generation = df_generation.loc[df_generation.variable.str.contains("gen")][["variable","year","value"]].groupby(["year"]).sum().value
     total_generation = backup_generation + df_wind + df_solar
 
-    #df_generation_gbyv = df_generation.groupby(["year","variable"]).sum()
-    #df_tot_generation = df_generation_gbyv[df_generation_gbyv > 0].dropna() 
-    #df_tot_generation_gby = df_tot_generation.groupby("year").sum()
-
     df_solar_share = df_solar/total_generation
     df_wind_share = df_wind/total_generation
     df_vre_share = pd.DataFrame()
@@ -80,11 +76,11 @@ def plot_gen_share_and_curtailment(scen, df_generation, df_curtailment, curtailm
                                                 "solar_curtailment_2_input",
                                                 "solar_curtailment_3_input"]]
         
-        df_wind_theoretical = wind_resources.copy() 
-        df_solar_theoretical = solar_resources.copy()
+        # df_wind_theoretical = wind_resources.copy() 
+        # df_solar_theoretical = solar_resources.copy()
 
         fig3,ax3 = plt.subplots()
-        wind_curtailment_bins_rel = wind_curtailment_bins.T.div(df_wind_theoretical).T*100
+        wind_curtailment_bins_rel = wind_curtailment_bins.T.div(wind_resources).T*100
         wind_curtailment_bins_rel.plot.bar(ax=ax3,
                                         stacked=True,
                                         legend=False)
@@ -95,7 +91,7 @@ def plot_gen_share_and_curtailment(scen, df_generation, df_curtailment, curtailm
 
         ############################################################### Fig. 4
         fig4,ax4 = plt.subplots()
-        solar_curtailment_bins_rel = solar_curtailment_bins.T.div(df_solar_theoretical).T*100
+        solar_curtailment_bins_rel = solar_curtailment_bins.T.div(solar_resources).T*100
         solar_curtailment_bins_rel.plot.bar(ax=ax4,
                                             stacked=True,
                                             legend=False)

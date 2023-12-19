@@ -24,6 +24,11 @@ The metrics include the following:
     - SDES and LDES storage dispatch relative to the electricity demand (%)
     - SDES and LDES storage energy capacity (TWh)
     - SDES and LDES storage discharge capacity (GW)
+    - SDES and LDES storage capacity factor (%)
+    - SDES and LDES storage duration (hours)
+    - SDES and LDES storage investment cost (EUR/kW)
+    - SDES and LDES storage number of cycles [-]
+    - SDES and LDES storage depth of discharge (%)
     - transmission volume (TWkm)
     - transmission peak load ratio (GW/GW)
     - system cost (billion EUR)
@@ -46,6 +51,71 @@ warnings.filterwarnings('ignore')
 overrides = override_component_attrs("../PyPSA-Eur/override_component_attrs")
 locator = mdates.DayLocator()  # every month
 fmt = mdates.DateFormatter('%b-%d')
+def calculate_storage_cycles(n,tech):
+    stores = n.stores.loc[n.stores.carrier.str.contains(tech)].index
+    if len(stores) == 0:
+        return 0, 0
+    
+    soc = n.stores_t.e[stores].sum(axis=1)
+    soc_diff = soc.diff()
+    soc_diff[soc_diff < 0] = 0 # negative changes (discharging) get 0 values
+    soc_diff[soc_diff > 0] = 1 # positive changes (charging) get 1 values
+    soc_diff_diff = soc_diff.diff()
+
+    # calculate average depth of discharge
+    cycle_index_1 = soc_diff_diff[soc_diff_diff > 0].index
+    cycle_index_2 = soc_diff_diff[soc_diff_diff < 0].index
+
+    if len(cycle_index_2) > len(cycle_index_1):
+        cycle_index_2 = cycle_index_2[:-1]
+    elif len(cycle_index_2) < len(cycle_index_1):
+        cycle_index_1 = cycle_index_1[:-1]
+
+    dod = ((soc.loc[cycle_index_2].values - soc.loc[cycle_index_1])/(soc.max())*100) # depth of discharge for each cycle
+    dod = dod[dod >= 5] # neglect cycles with DOD < 5% of the maximum SOC
+    
+    no_cycles = len(dod) # number of cycles
+    dod_mean = dod.mean() # average depth of discharge
+
+    return no_cycles, dod_mean
+
+def calculate_aggregated_storage_cost(n,tech,costs, efficiencies):
+    stores = n.stores.loc[n.stores.carrier.str.contains(tech)].index
+    if len(stores) == 0:
+        return 0, 0
+
+    discharger_links = n.links.loc[n.links.carrier.str.contains(tech + " discharger")].index 
+    eta_c = efficiencies["charging"] # 
+    eta_d = efficiencies["discharging"] #
+    efficiency = eta_c*eta_d # round-trip efficiency
+    c_c = costs["charging"] # 
+    c_hat = costs["storage"] # 
+    c_d = costs["discharging"] #
+
+    energy_cap = n.stores.loc[stores].e_nom_opt
+    power_cap = n.links.loc[discharger_links].p_nom_opt
+
+    duration = (energy_cap.values/power_cap.values).mean()
+
+    inv_cost = 1/efficiency*c_c + duration*c_hat + c_d
+
+    return duration, inv_cost
+
+def calculate_storage_capacity_factor(n,tech):
+    stores = n.stores.loc[n.stores.carrier.str.contains(tech)].index
+    if len(stores) == 0:
+        return 0
+
+    discharger_links = n.links.loc[n.links.carrier.str.contains(tech + " discharger")].index # links
+    efficiency = n.links.loc[discharger_links].efficiency.values[0] # discharging efficiency
+    dispatch_t = -n.links_t.p1[discharger_links] # dispatch [MWh of electricity delivered]
+    dispatch_t[dispatch_t < 0.1] = 0 # neglect small discharging values
+    capacity = n.links.loc[discharger_links].p_nom_opt*efficiency # capacity [MW of electricity delivered]
+
+    capacity_factor_t = dispatch_t.sum(axis=1)/capacity.sum()*100 # hourly capacity factors [%]
+    capacity_factor_mean = capacity_factor_t.mean() # average capacity factor
+
+    return capacity_factor_mean
 
 def calculate_curtailment(n,denominator_category="load"):
     total_inflexible_load = n.loads_t.p[n.loads.query('carrier == "electricity"').index].sum(axis=1).sum()
@@ -436,12 +506,33 @@ RDIR = "../calculated_metrics/"
 path = 'C:\\Users/au485969/OneDrive - Aarhus universitet/PhD/IIASA YSSP/pypsa/networks/'
 
 # scenarios 
-scens = ['new_transmission', 
-          'new_transmission_co2_lim', 
-          'new_transmission_SDES', 
-          'new_transmission_SDES_co2_lim', 
-          'new_transmission_SDES_LDES', 
-          'new_transmission_SDES_LDES_co2_lim']
+scens = ["new_SDES_LDES_co2_lim",
+         "new_SDES_co2_lim",
+         ]
+
+costs = {"LDES":
+         {"charging":450,
+          "storage":12,
+          "discharging":500
+         },
+         "battery":
+         {"charging":160,
+          "storage":142,
+          "discharging":0
+         },
+        }
+
+efficiencies = {"LDES":
+                {"charging":0.68,
+                 "storage":1, # (standing losses, assume negligible)
+                 "discharging":0.7,
+                 },
+                 "battery":
+                {"charging":0.96,
+                 "storage":1, # (standing losses, assume negligible)
+                 "discharging":0.96,
+                 }
+                }
 
 # scenarios with existing hydropower facilities: "1H_w_hydro", "1H_w_co2_lim_w_hydro",
 denominator = "gen_theoretical" # normalization of curtailment w.r.t. either theoretical or actual generation, or pick "load" as units of demand
@@ -479,10 +570,18 @@ for scen in scens:
     abs_storage_ldes = {}
     LDES_discharge_capacity = {}
     LDES_energy_capacity = {}
-    # LDES_capacity_factor = {}
     SDES_discharge_capacity = {}
     SDES_energy_capacity = {}
-    # SDES_capacity_factor = {}
+    LDES_no_cycles = {}
+    LDES_dod = {}
+    LDES_capacity_factor = {}
+    LDES_duration = {}
+    LDES_inv_cost = {}
+    SDES_no_cycles = {}
+    SDES_dod = {}
+    SDES_capacity_factor = {}
+    SDES_duration = {}
+    SDES_inv_cost = {}
     trans_vol = {}
     system_efficiency = {}
     system_cost = {}
@@ -581,6 +680,29 @@ for scen in scens:
         percentage_storage_sdes[shares["solar"],shares["wind"]] = round(percentage_storage_sdes_j,1)
         percentage_storage_ldes[shares["solar"],shares["wind"]] = round(percentage_storage_ldes_j + percentage_storage_H2_j,1)
     
+        # storage characteristics (cycles, dod, capacity factors)
+        no_cycles = {}
+        dod = {}
+        capacity_factor = {}
+        duration = {}
+        inv_cost = {}
+        for tech in ["LDES","battery"]:
+            no_cycles[tech], dod[tech] = calculate_storage_cycles(n,tech)
+            capacity_factor[tech] = calculate_storage_capacity_factor(n,tech)
+            duration[tech], inv_cost[tech] = calculate_aggregated_storage_cost(n,tech,costs[tech], efficiencies[tech])
+        
+        LDES_no_cycles[shares["solar"],shares["wind"]] = no_cycles["LDES"]
+        SDES_no_cycles[shares["solar"],shares["wind"]] = no_cycles["battery"]
+        LDES_dod[shares["solar"],shares["wind"]] = round(dod["LDES"],1)
+        SDES_dod[shares["solar"],shares["wind"]] = round(dod["battery"],1)
+        LDES_capacity_factor[shares["solar"],shares["wind"]] = round(capacity_factor["LDES"],1)
+        SDES_capacity_factor[shares["solar"],shares["wind"]] = round(capacity_factor["battery"],1)
+        LDES_duration[shares["solar"],shares["wind"]] = round(duration["LDES"],1)
+        SDES_duration[shares["solar"],shares["wind"]] = round(duration["battery"],1)
+        LDES_inv_cost[shares["solar"],shares["wind"]] = round(inv_cost["LDES"],1)
+        SDES_inv_cost[shares["solar"],shares["wind"]] = round(inv_cost["battery"],1)
+
+
         # Calculate H2 storage discharge capacity
         H2_discharge_capacity_j = n.links.query("carrier == 'H2 Fuel Cell'").p_nom_opt.sum().sum()/1e3 # convert to GW
         #H2_discharge_capacity[shares["solar"],shares["wind"]] = round(H2_discharge_capacity_j,1)
@@ -690,6 +812,17 @@ for scen in scens:
                       "LDES_dispatch":percentage_storage_ldes,                     
                       "LDES_energy_cap":LDES_energy_capacity,
                       "LDES_discharge_cap":LDES_discharge_capacity,
+
+                      "SDES_capacity_factor":SDES_capacity_factor,
+                      "SDES_duration":SDES_duration,
+                      "SDES_inv_cost":SDES_inv_cost,
+                      "SDES_no_cycles":SDES_no_cycles,
+                      "SDES_dod":SDES_dod,
+                      "LDES_capacity_factor":LDES_capacity_factor,
+                      "LDES_duration":LDES_duration,
+                      "LDES_inv_cost":LDES_inv_cost,
+                      "LDES_no_cycles":LDES_no_cycles,
+                      "LDES_dod":LDES_dod,
                       
                     # transmission volume
                       "transmission_volume":trans_vol,
