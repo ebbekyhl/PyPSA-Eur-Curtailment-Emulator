@@ -35,3 +35,6 @@ Note that steps 1 and 2 have already been performed, with resulting files locate
 
 4. `MESSAGE_implementation.py`:
    - As a use-case of the curtailment emulator, we apply the tool to represent curtailment in the Integrated Assessment Model MESSAGEix-GLOBIOM based on scenarios obtained in PyPSA-Eur. This with the aim to capture the synergies between wind and solar PV with technological deployment, as well as the impact of electrifying other energy-consuming sectors. 
+
+5. Run `MESSAGEix-GLOBIOM/make_diagnostics_w_PyPSA.ipynb`:
+   - Runs the diagnostics of the energy and capacity mix of the scenario that includes curtailment parameters derived from PyPSA-Eur.

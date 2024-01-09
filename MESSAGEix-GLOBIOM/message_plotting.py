@@ -246,38 +246,38 @@ def plot_settings():
     
     return tech_colors, ppl_colors, preferred_order
 
-def plot_VRE(categories, plot, years,variable_name = ""):
-    tech_colors, ppl_colors, preferred_order = plot_settings()
+# def plot_VRE(categories, plot, years,variable_name = ""):
+#     tech_colors, ppl_colors, preferred_order = plot_settings()
     
-    #plot.drop(plot.loc[plot.technology == "solar_th_ppl"].index,inplace=True)
-    #plot.drop(plot.loc[plot.index.get_level_values(0) == "solar_th_ppl"].index,inplace=True)
+#     #plot.drop(plot.loc[plot.technology == "solar_th_ppl"].index,inplace=True)
+#     #plot.drop(plot.loc[plot.index.get_level_values(0) == "solar_th_ppl"].index,inplace=True)
     
-    df_years = pd.DataFrame(index=categories)
-    for y in years:
-        plot_dict = {}
-        for cat in categories:
-            if "curtailment" in variable_name:
-                plot_dict[cat] = plot.loc[cat].query("year_act == @y").sum().mrg
-            else:
-                plot_dict[cat] = plot.loc[cat].query("year_act == @y").sum().lvl
-        plot_df = pd.DataFrame.from_dict(plot_dict,orient="index")
-        df_years[y] = plot_df
+#     df_years = pd.DataFrame(index=categories)
+#     for y in years:
+#         plot_dict = {}
+#         for cat in categories:
+#             if "curtailment" in variable_name:
+#                 plot_dict[cat] = plot.loc[cat].query("year_act == @y").sum().mrg
+#             else:
+#                 plot_dict[cat] = plot.loc[cat].query("year_act == @y").sum().lvl
+#         plot_df = pd.DataFrame.from_dict(plot_dict,orient="index")
+#         df_years[y] = plot_df
 
-    df_years = df_years.loc[~(df_years==0).all(axis=1)]
-    df_years = df_years[df_years.columns.sort_values()]
+#     df_years = df_years.loc[~(df_years==0).all(axis=1)]
+#     df_years = df_years[df_years.columns.sort_values()]
 
-    fig,ax = plt.subplots()
-    new_index = preferred_order.intersection(df_years.index).append(
-            df_years.index.difference(preferred_order)
-        )
-    df_years.loc[new_index].T.plot.bar(ax=ax,
-                                       color=[tech_colors[i] for i in new_index],
-                                       stacked=True,
-                                       legend=False)
-    ax.set_ylabel(variable_name)
-    ax.set_xlim(11.5,25.5)
-    fig.legend(ncol=2,bbox_to_anchor=[0.75, 0])
-    return fig, ax, df_years
+#     fig,ax = plt.subplots()
+#     new_index = preferred_order.intersection(df_years.index).append(
+#             df_years.index.difference(preferred_order)
+#         )
+#     df_years.loc[new_index].T.plot.bar(ax=ax,
+#                                        color=[tech_colors[i] for i in new_index],
+#                                        stacked=True,
+#                                        legend=False)
+#     ax.set_ylabel(variable_name)
+#     ax.set_xlim(11.5,25.5)
+#     fig.legend(ncol=2,bbox_to_anchor=[0.75, 0])
+#     return fig, ax, df_years
 
 def plot_demand(demand, regions, years, unit=""):
     tech_colors, ppl_colors, preferred_order = plot_settings()
@@ -595,7 +595,7 @@ def contribute_relation(
     ]
     return result
 
-def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
+def read_and_plot_curtailment_B(scenarios,node,plot_curtailment = True):
     
     idx = ["model", "scenario", "region", "variable", "unit"]
 
@@ -615,7 +615,7 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
         for r in rels.keys():
             results[(scen, r)] = contribute_relation(
                 sc,
-                node=region_name[1],
+                node=node,
                 year=model_years,
                 relation=rels[r][0],
                 commodity=rels[r][1],
@@ -626,12 +626,14 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
         for curt in curt_list:
             results[(scen, curt)] = contribute_relation(
                 sc,
-                node=region_name[1],
+                node=node,
                 year=model_years,
                 relation=curt,
                 commodity=None,
                 assertion=False,
             )
+
+            # print(results[(scen, curt)])
 
         # Calculating share of PV from total generation
         # List of technologies generating at the secondary level
@@ -674,7 +676,7 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
             if "Flex" in tec:
                 d = contribute_relation(
                     sc,
-                    region_name[1],
+                    node,
                     model_years,
                     relation="oper_res",
                     commodity="electr",
@@ -683,9 +685,9 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
                 d1 = d.loc[d["technology"].isin(data[0])].copy()
                 d1["year_vtg"] = 2020  # dummy
             elif tec in ["Generation", "Load"]:
-                d1 = out_act(sc, region_name[1], main, "electr", model_years).reset_index()
+                d1 = out_act(sc, node, main, "electr", model_years).reset_index()
             else:
-                d1 = inp_act(sc, region_name[1], main, "electr", model_years).reset_index()
+                d1 = inp_act(sc, node, main, "electr", model_years).reset_index()
             d1["technology"] = tec
 
             # Share of deduction (curtailment)
@@ -698,12 +700,13 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
                     d2["year_vtg"] = 2020  # dummy
                 else:
                     d2 = inp_act(
-                        sc, region_name[1], deduct, "electr", model_years
+                        sc, node, deduct, "electr", model_years
                     ).reset_index()
                     d2["technology"] = tec
                     d2["value"] *= -1
             else:
                 d2 = pd.DataFrame()
+            
             # Deducting curtailment from generation
             df[tec] = (
                 pd.concat([d1, d2])
@@ -711,6 +714,10 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
                 .sum()
                 .drop(["year_vtg"], axis=1)["value"]
             )
+
+            if tec == "Wind":
+                d1_wind = d1
+                d2_wind = d2
 
         # Check balances
         df["Generation"] >= df["Secondary"] - df["Grid"]
@@ -740,7 +747,7 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
         df["model"] = sc.model
         df["scenario"] = sc.scenario
         df["unit"] = "GWa"
-        df["region"] = region_name[0]
+        df["region"] = node
 
         figures[(scen, "Generation (GWa)")] = pd.pivot_table(
             df, index=idx, columns="year", values="value"
@@ -860,7 +867,278 @@ def read_and_plot_curtailment_B(scenarios,region_name,plot_curtailment = True):
     else:
         df_curtailment = 0
     
-    return results, df_curtailment, df_generation
+    return results, df_curtailment, df_generation, d1_wind, d2_wind
+
+def plot_Behnam_script(scenarios,node,plot_curtailment = True):
+
+    idx = ["model", "scenario", "region", "variable", "unit"]
+
+    rels = {
+        "Operating reserves (GWa)": ["oper_res", None],
+        "Reserve margin (GW)": ["res_marg", None],
+    }
+
+    results = {}
+    figures = {}
+
+    # Loading scenarios and calculating
+    for num, scen in enumerate(scenarios.keys()):
+        sc = scenarios[scen] 
+
+        model_years = [x for x in sc.set("year") if x >= sc.firstmodelyear and x < 2110]
+        for r in rels.keys():
+            results[(scen, r)] = contribute_relation(
+                sc,
+                node=node,
+                year=model_years,
+                relation=rels[r][0],
+                commodity=rels[r][1],
+            )
+
+        # Curtailment relations
+        curt_list = [x for x in sc.set("relation") if "curtailment" in x]
+        for curt in curt_list:
+            results[(scen, curt)] = contribute_relation(
+                sc,
+                node=node,
+                year=model_years,
+                relation=curt,
+                commodity=None,
+                assertion=False,
+            )
+
+        # Calculating share of PV from total generation
+        # List of technologies generating at the secondary level
+        tec_list = sc.par("output", {"level": "secondary", "commodity": "electr"})[
+            "technology"
+        ].unique()
+        # List of technologies consuming at the secondary level
+        tec_in = sc.par("input", {"level": "secondary", "commodity": "electr"})[
+            "technology"
+        ].unique()
+        # List of flexible technologies
+        flex = sc.par("relation_activity", {"relation": "oper_res"})
+        tec_flex = flex.loc[flex["value"] > 0, "technology"].unique()
+        flex_gen = [x for x in tec_list if x in tec_flex]
+        flex_se = [x for x in tec_in if x in tec_flex]
+        flex_load = [x for x in tec_flex if x not in flex_gen + flex_se]
+
+        tec_inflex = flex.loc[flex["value"] <= 0, "technology"].unique()
+        info = {
+            "Solar PV": (["solar_res"], ["solar_curtail"]),
+            "Wind": (["wind_res", "wind_ref"], ["wind_curtail"]),
+            "Generation": (tec_list, []),
+            "Secondary": (tec_in, ["elec_t_d", "stor_ppl"]),
+            "Flex gen.": (flex_gen, []),
+            "Flex SE": (flex_se, []),
+            "Flex load": (flex_load, []),
+            "Grid": (["elec_t_d"], []),
+            "Storage loss": (["stor_ppl"], []),
+            "Load": (["elec_t_d"], []),
+        }
+
+        df = pd.DataFrame(index=model_years)
+        for tec, data in info.items():
+
+            # Share of main technology
+            main = sorted(
+                [x for x in set(sc.set("technology")) if any([y in x for y in data[0]])]
+            )
+
+            if "Flex" in tec:
+                d = contribute_relation(
+                    sc,
+                    node,
+                    model_years,
+                    relation="oper_res",
+                    commodity="electr",
+                    assertion=False,
+                )
+                d1 = d.loc[d["technology"].isin(data[0])].copy()
+                d1["year_vtg"] = 2020  # dummy
+            elif tec in ["Generation", "Load"]:
+                d1 = out_act(sc, node, main, "electr", model_years).reset_index()
+            else:
+                d1 = inp_act(sc, node, main, "electr", model_years).reset_index()
+            d1["technology"] = tec
+
+            # Share of deduction (curtailment)
+            if data[1]:
+                deduct = sorted(
+                    [x for x in set(sc.set("technology")) if any([y in x for y in data[1]])]
+                )
+                if "Flex" in tec:
+                    d2 = d.loc[d["technology"].isin(deduct)].copy()
+                    d2["year_vtg"] = 2020  # dummy
+                else:
+                    d2 = inp_act(
+                        sc, node, deduct, "electr", model_years
+                    ).reset_index()
+                    d2["technology"] = tec
+                    d2["value"] *= -1
+            else:
+                d2 = pd.DataFrame()
+            # Deducting curtailment from generation
+            df[tec] = (
+                pd.concat([d1, d2])
+                .groupby(["year_act"])
+                .sum()
+                .drop(["year_vtg"], axis=1)["value"]
+            )
+
+            if tec == "Wind":
+                d1_wind = d1
+                d2_wind = d2
+
+        # Check balances
+        df["Generation"] >= df["Secondary"] - df["Grid"]
+
+        # Calculating the share per year
+        df["Grid loss"] = df["Grid"] - df["Load"]
+        df["Secondary"] -= df["Flex SE"]
+        df["Load"] -= df["Flex load"]
+        df["Inflex gen."] = df["Generation"] - df["Solar PV"] - df["Wind"] - df["Flex gen."]
+
+        # Giving different signs to generation (+) vs. consumption (-)
+        ord_neg = ["Load", "Flex load", "Secondary", "Flex SE", "Storage loss", "Grid loss"]
+        df.loc[:, df.columns.isin(ord_neg)] *= -1
+
+        # Calculating shares
+        share = df / df[["Generation"]].values
+
+        # Ordering and saving
+        ord_pos = ["Solar PV", "Wind", "Flex gen.", "Inflex gen."]
+        df = df[ord_pos + ord_neg]
+
+        # df.columns = pd.MultiIndex.from_product([['value'], df.columns])
+        # df = df.stack()
+        # df.index.names = ["year", "variable"]
+        df = df.stack().reset_index()
+        df.columns = ["year", "variable", "value"]
+        df["model"] = sc.model
+        df["scenario"] = sc.scenario
+        df["unit"] = "GWa"
+        df["region"] = node
+
+        figures[(scen, "Generation (GWa)")] = pd.pivot_table(
+            df, index=idx, columns="year", values="value"
+        ).reset_index()
+
+    df_generation = df
+
+    if plot_curtailment:
+        # Visualization and plotting configuration
+        # Input values for curtailment electricity (please check for each region)
+        inp_curt = {
+            "wind_curtailment_1": 0.10,
+            "wind_curtailment_2": 0.25,
+            "wind_curtailment_3": 0.35,
+            "solar_curtailment_1": 0.15,
+            "solar_curtailment_2": 0.25,
+            "solar_curtailment_3": 0.35,
+        }
+
+        rename = {
+            "Coal": ["coal_adv", "coal_ppl", "coal_ppl_u", "igcc"],
+            "Coal w CCS": ["coal_adv_ccs", "igcc_ccs"],
+            "Gas": ["gas_ppl", "gas_cc"],
+            "Gas w CCS": ["gas_cc_ccs"],
+            "Gas CT": ["gas_ct"],
+            "Oil": ["foil_ppl", "loil_ppl", "loil_cc"],
+            "Nuclear": ["nuc_lc", "nuc_hc"],
+            "Hydro": ["hydro_lc", "hydro_hc"],
+            "Biomass": ["bio_istig", "bio_ppl"],
+            "Biomass w CCS": ["bio_istig_ccs"],
+            "Geothermal": ["geo_ppl"],
+            "CSP": [
+                x
+                for x in set(sc.set("technology"))
+                if any([y in x for y in ["csp_sm1", "csp_sm3", "solar_th_ppl"]])
+            ],
+            "Solar PV": [
+                x
+                for x in set(sc.set("technology"))
+                if any([y in x for y in ["solar_cv", "solar_res"]])
+            ],
+            "Wind": [
+                x
+                for x in set(sc.set("technology"))
+                if any([y in x for y in ["wind_cv", "wind_res", "wind_ref"]])
+            ],
+            "Wind curtailed": [x for x in set(sc.set("technology")) if "wind_curt" in x],
+            "Solar PV curtailed": [x for x in set(sc.set("technology")) if "solar_curt" in x],
+            "Storage": ["stor_ppl"],
+            "Export": [x for x in set(sc.set("technology")) if "elec_exp" in x],
+            "Import": [x for x in set(sc.set("technology")) if "elec_imp" in x],
+            "E-mobility": ["elec_trp"],
+            "Electrolysis": ["h2_elec"],
+            "Fuel cell": ["h2_fc_I", "h2_fc_RC"],
+            "DAC": [x for x in set(sc.set("technology")) if "dac_" in x],
+            "Load": ["elec_t_d"],
+        }
+
+        ren = {}
+        for x, y in rename.items():
+            for z in y:
+                ren[z] = x
+
+        # Dealing with curtailment in more detail (for each VRE step)
+        stor_tecs_input = {"stor_ppl": 1.25, "h2_elec": 1.25}
+        stor_tecs_loss = {"stor_ppl": 0.25}
+
+        for scen in scenarios:
+            df = pd.DataFrame(index=model_years)
+            other = pd.DataFrame(index=model_years)
+            for curt in curt_list:
+                d = results[(scen, curt)]
+
+                # 1. Estimating theoretical curtailment
+                if "wind" in curt:
+                    tec_list = rename["Wind"] + ["elec_t_d"]
+                else:
+                    tec_list = rename["Solar PV"] + ["elec_t_d"]
+
+                # Loading the data of resource technologies
+                cm = d.loc[d["technology"].isin(tec_list)]  # curtailment techs
+
+                # Calculating theoretical curtailment (positive value) for each year
+                df[curt] = cm.reset_index().groupby(["year_act"]).sum().drop(["share"], axis=1)
+                df = df[df > 0].copy()
+
+                # 2. Calculating the role of each technology for wind and solar curtailment
+                # Aggregating all
+                role = d.loc[~d["technology"].isin(tec_list)]  # other techs
+                other[curt] = (
+                    role.reset_index().groupby(["year_act"]).sum().drop(["share"], axis=1)
+                )
+
+            # Calculating aggregates
+            wind_rel = [x for x in df.columns if "wind" in x]
+            pv_rel = [x for x in df.columns if "solar" in x]
+            df["Wind"] = df.loc[:, df.columns.isin(wind_rel)].sum(axis=1)
+            df["Solar PV"] = df.loc[:, df.columns.isin(pv_rel)].sum(axis=1)
+
+            # Multiplying by electricity input of each curtailment category
+            for col, value in inp_curt.items():
+                df[col + "_input"] = df[col] * value
+            wind_rel = [x for x in df.columns if "wind" in x and "input" in x]
+            pv_rel = [x for x in df.columns if "solar" in x and "input" in x]
+            df["Wind curtailed"] = df.loc[:, df.columns.isin(wind_rel)].sum(axis=1)
+            df["Solar PV curtailed"] = df.loc[:, df.columns.isin(pv_rel)].sum(axis=1)
+
+            # Estimating storage contribution (by activity)
+            for tec, inp_loss in stor_tecs_loss.items():
+                df[ren[tec]] = d.loc[d["technology"] == tec, "value"]
+                df[ren[tec] + "_loss"] = d.loc[d["technology"] == tec, "value"] * inp_loss
+            # Estimating storage contribution (by charging when curtailment happens)
+            for tec, inp_el in stor_tecs_input.items():
+                df[ren[tec] + "_input"] = d.loc[d["technology"] == tec, "value"] * inp_el
+
+        df_curtailment = df
+    else:
+        df_curtailment = 0
+
+    return results, df_curtailment, df_generation, d1_wind, d2_wind
 
 def make_summary(scen):
     commodity = [x for x in scen.set("commodity") if "electr" in x]
@@ -878,7 +1156,9 @@ def make_summary(scen):
     demand = scen.par("demand")
     return cap_filtered, cap, act_filtered, act, demand,  ppl_including_storage, relation_upper
 
-def plot_gen_share_and_curtailment(df_generation, df_curtailment):
+def plot_gen_share_and_curtailment_2(df_generation, df_curtailment):
+    tech_colors = {"solar":"#ffcc00","wind":"#235ebc"}
+    fs = 15
 
     df_solar = df_generation.query("variable == 'Solar PV'")
     df_solar = df_solar.set_index("year")
@@ -937,7 +1217,7 @@ def plot_gen_share_and_curtailment(df_generation, df_curtailment):
     ax3.set_ylim(0,100)
     ax3.set_ylabel("wind curtailment \n (% of wind theo. generation)")
     fig3.legend(ncol=1,bbox_to_anchor=[0.75, -0.05],prop={"size":fs})
-    fig3.savefig("figures/wind_curtailment_baseline.png",bbox_inches="tight",dpi=300)
+    # fig3.savefig("figures/wind_curtailment_baseline.png",bbox_inches="tight",dpi=300)
 
     ############################################################### Fig. 4
     fig4,ax4 = plt.subplots()
@@ -949,7 +1229,7 @@ def plot_gen_share_and_curtailment(df_generation, df_curtailment):
     ax4.set_ylim(0,100)
     ax4.set_ylabel("solar curtailment \n (% of solar theo. generation)")
     fig4.legend(ncol=1,bbox_to_anchor=[0.75, -0.05],prop={"size":fs})
-    fig4.savefig("figures/solar_curtailment_baseline.png",bbox_inches="tight",dpi=300)
+    # fig4.savefig("figures/solar_curtailment_baseline.png",bbox_inches="tight",dpi=300)
     
     return fig1, ax1, fig2, ax2, fig3, ax3, fig4, ax4, df_vre_share_pct
 
