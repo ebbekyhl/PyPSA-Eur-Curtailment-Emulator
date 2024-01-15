@@ -355,33 +355,8 @@ def color_plot_2D(series, renewable="", vmax=30, cbar_label="resources", disp=0.
 
     return fig, ax, df
 
-def test_pypsa_emulator(file_path, wind_res,solar_res,ldes,sdes, curtailment_type="resources"):
-    """
-    Function that reads Excel sheet and evaluatesa the equations.
-    This function is no longer used.
-    """
-    
-    # wind_res [list] = wind resources in percentage of demand (including curtailment)
-    # solar_res [list] = solar PV resources percentage of demand (including curtailment)
-    # ldes [scalar] = long-duration energy storage disptach as percentage of demand (including energy losses)
-    # sdes [scalar]= short-duration energy storage dispatch as percentage of demand (including energy losses)
-    # curtailment_type [string] = curtailment as percentage of demand ("demand") or renewable resources ("resources")
-
-    wind_curtailment_dict = {}
-    solar_curtailment_dict = {}
-    for solar_res_i in solar_res:
-        for wind_res_i in wind_res:
-            op1,op2 = run_pypsa_emulator(file_path,curtailment_type,wind_res_i,solar_res_i,ldes,sdes)
-
-            wind_curtailment_dict[(solar_res_i,wind_res_i)] = op1 # output1 is wind curtailment
-            solar_curtailment_dict[(solar_res_i,wind_res_i)] = op2 # output2 is solar curtailment
-
-    wind_curtailment_series = pd.Series(wind_curtailment_dict)
-    solar_curtailment_series = pd.Series(solar_curtailment_dict)
-
-    return wind_curtailment_series, solar_curtailment_series
-
 def plot_tech_impact(tech, renewable):
+    import seaborn as sns
     beta = pd.read_csv("results/beta_" + tech + "_" + renewable + ".csv",index_col=0)
     renewable_c = {"solar":"wind",
                    "wind":"solar"}
@@ -393,32 +368,23 @@ def plot_tech_impact(tech, renewable):
     if renewable == "solar":
         beta_array = beta_array.T
 
-    # color plot of beta_sdes_2d_array
+    beta_array = beta_array.loc[beta_array.index[::-1]]
+
     fig, ax = plt.subplots(figsize=(8,6))
+    im = sns.heatmap(beta_array, annot=True, ax=ax, cmap="Blues_r", cbar=True,
+                     cbar_kws={'label': tech + " impact on " + renewable + " curtailment [-]"},
+                     annot_kws={"size": 16},
+                     fmt=".2f")
 
-    im = ax.pcolormesh(beta_array.index, 
-                    beta_array.columns, 
-                    beta_array.values, 
-                    cmap="Blues_r",zorder=0)
-
-    cb = fig.colorbar(im, ax=ax)
-    cb.set_label(tech + " impact on curtailment [-]")
-    # set xticklabels 
     ticklabels = [">0", "10-30", "30-40", "40-50", "50-60", "60-70", ">70"]
-    ax.set_xticks(range(len(ticklabels)))
+    ax.set_xticks(np.arange(len(ticklabels))+0.5)
     ax.set_xticklabels(ticklabels,rotation=45)
-    ax.set_yticks(range(len(ticklabels)))
+    ax.set_yticks(np.arange(len(ticklabels))+0.5)
+    
+    # change order of ticklabels
+    ticklabels = ticklabels[::-1]
     ax.set_yticklabels(ticklabels)
     ax.set_xlabel("wind share (%)",fontsize=18)
     ax.set_ylabel("solar share (%)",fontsize=18)
-
-    for i in range(len(beta_array.index)):
-        for k in range(len(beta_array.columns)):
-            c = beta_array.iloc[i,k]
-            if c != '' and c != np.nan and np.abs(c) > 0:
-                ax.text(beta_array.columns[k], 
-                        beta_array.index[i], 
-                        "{:.1f}".format(c), 
-                        va='center', ha='center')
                 
     return fig, ax, beta_array
