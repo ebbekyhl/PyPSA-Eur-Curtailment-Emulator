@@ -88,6 +88,146 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
 
     return beta_tech_renewable_extended
 
+def add_storage_tech(sc, sc_ref, tech, years, capacity_factor, inv_cost, lifetime, efficiency, region, df_beta_solar_SDES, df_beta_solar_LDES, df_beta_wind_LDES, df_beta_wind_SDES, change_structure=False):
+
+    df_input = make_df('input',
+                       node_loc=region,
+                       technology= tech,
+                       year_vtg=years,
+                       year_act=years,
+                       mode="M1",
+                       node_origin=region,
+                       commodity="electr",
+                       level="secondary",
+                       time="year",
+                       time_origin="year",
+                       value = 1 - efficiency,
+                       unit = "GWa")
+
+    df_output = make_df('output',
+                            node_loc = region,
+                            technology = tech,
+                            year_vtg = years,
+                            year_act = years,
+                            mode = "M1",
+                            node_dest = region,
+                            commodity = 'exports',
+                            level = "secondary",
+                            time = "year",
+                            time_dest = "year",
+                            value = 1,
+                            unit = "GWa",
+                            )
+
+    df_CF = make_df('capacity_factor',
+                            node_loc = region,
+                            technology = tech,
+                            year_vtg = years,
+                            year_act = years,
+                            time = "year",
+                            value = capacity_factor/100,
+                            unit = "%",
+                            )
+
+    df_inv_cost = make_df('inv_cost',
+                            node_loc=region,
+                            technology=tech,
+                            year_vtg=years,
+                            value=inv_cost,
+                            unit="USD/GWa",
+                            )
+
+    df_lifetime = make_df('technical_lifetime',
+                            node_loc=region,
+                            technology=tech,
+                            year_vtg=years,
+                            value=lifetime,
+                            unit="y")
+    
+
+    # Now that we have added the LDES and SDES as technologies in the scenario, 
+    # we also need to define their parameters in the VRE integration constraints. 
+    # Here, we add the parameters for LDES and SDES to the firm capacity constraint
+    # and the flexibility constraint. We assume the storage is fully contributing to
+    # the firm capacity constraint and the flexibility constraint, i.e., they have 
+    # values of 1.0 (which is the same value for stor_ppl):
+    
+    # firm capacity constraint
+    df_res_marg = make_df('relation_total_capacity',
+                          relation = "res_marg",
+                          node_rel = region,
+                          year_rel = years,
+                          technology = tech,
+                          value = 1.0,
+                          unit = "???"
+                          )
+    
+    # flexibility constraint
+    df_oper_res = make_df('relation_activity',
+                          relation = "oper_res",
+                          node_rel = region,
+                          year_rel = years,
+                          node_loc = region,
+                          technology = tech,
+                          year_act = years,
+                          mode = "M1",
+                          value = 1.0,
+                          unit = "???"
+                          )
+
+    sc.add_set("technology", tech)
+    sc.add_par('input',df_input)
+    sc.add_par('output',df_output)
+    sc.add_par("capacity_factor", df_CF)
+    sc.add_par('inv_cost',df_inv_cost)
+    sc.add_par('technical_lifetime',df_lifetime)
+    sc.add_par('relation_total_capacity',df_res_marg)
+    sc.add_par("relation_activity",df_oper_res)
+
+    # curtailment constraint
+    if not change_structure:
+        df_storage_curtailment = sc_ref.par("relation_activity",
+                                            {"node_rel": region,
+                                                "relation": ["wind_curtailment_1","wind_curtailment_2","wind_curtailment_3",
+                                                             "solar_curtailment_1","solar_curtailment_2","solar_curtailment_3"],
+                                                "technology":"stor_ppl",
+                                                })
+        df_storage_curtailment.replace({"stor_ppl":tech}, inplace=True)
+
+        # get technology impact from PyPSA-Eur scenarios (we need to group the PyPSA-Eur parameters to fit the old structure)
+        sdes_solar_lvl1 = df_beta_solar_SDES["0"].loc["1"]
+        sdes_solar_lvl2 = df_beta_solar_SDES["0"].loc["2"]
+        sdes_solar_lvl3 = df_beta_solar_SDES["0"].loc[["3","4","5","6"]].sum()
+
+        ldes_solar_lvl1 = df_beta_solar_LDES["0"].loc["1"]
+        ldes_solar_lvl2 = df_beta_solar_LDES["0"].loc["2"]
+        ldes_solar_lvl3 = df_beta_solar_LDES["0"].loc[["3","4","5","6"]].sum()
+
+        ldes_wind_lvl1 = df_beta_wind_LDES.T["0"].loc["1"]
+        ldes_wind_lvl2 = df_beta_wind_LDES.T["0"].loc["2"]
+        ldes_wind_lvl3 = df_beta_wind_LDES.T["0"].loc[["3","4","5","6"]].sum()
+
+        sdes_wind_lvl1 = df_beta_wind_SDES.T["0"].loc["1"]
+        sdes_wind_lvl2 = df_beta_wind_SDES.T["0"].loc["2"]
+        sdes_wind_lvl3 = df_beta_wind_SDES.T["0"].loc[["3","4","5","6"]].sum()
+
+        tech_impact_solar = {"SDES":[sdes_solar_lvl1, sdes_solar_lvl2, sdes_solar_lvl3],
+                            "LDES":[ldes_solar_lvl1, ldes_solar_lvl2, ldes_solar_lvl3]}
+
+        tech_impact_wind = {"SDES":[sdes_wind_lvl1, sdes_wind_lvl2, sdes_wind_lvl3],
+                            "LDES":[ldes_wind_lvl1, ldes_wind_lvl2, ldes_wind_lvl3]}
+
+        for i in [1,2,3]:
+            wind_curt_tech = "wind_curtailment_" + str(i)
+            index_curt_tech = df_storage_curtailment.query("relation == @wind_curt_tech").index
+            df_storage_curtailment.loc[index_curt_tech,"value"] = tech_impact_wind[tech][i-1]
+
+            solar_curt_tech = "solar_curtailment_" + str(i)
+            index_curt_tech = df_storage_curtailment.query("relation == @solar_curt_tech").index
+            df_storage_curtailment.loc[index_curt_tech,"value"] = tech_impact_solar[tech][i-1]
+
+        sc.add_par("relation_activity",df_storage_curtailment)
+
 def keep_existing_curtailment_rates(sc_ref, renewable, gamma_ij_wind, gamma_ij_solar):
     # gamma coefficients in the original representation
     gamma_old = sc_ref.par("input",
