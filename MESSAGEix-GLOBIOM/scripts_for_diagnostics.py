@@ -95,33 +95,77 @@ def remove_flexibility_constraint(scen, df_rel_activity):
 # calculate theoretical curtailment
 def calculate_theoretical_curtailment(scen, regions, wind_resources, solar_resources, technologies, model_years):
     demand = scen.var("ACT",
-                            {"technology":technologies["load"],
-                                "node_loc":regions,
-                                }).groupby("year_act").sum().lvl
+                        {"technology":technologies["load"],
+                            "node_loc":regions,
+                            }).groupby("year_act").sum().lvl
 
     demand = demand.loc[model_years]
 
+    wind_curtailment_techs = [x for x in set(scen.set("technology")) if "wind_curt" in x]
+    solar_curtailment_techs = [x for x in set(scen.set("technology")) if "wind_curt" in x]
+
+    phi = scen.par("input",
+                   {"technology":wind_curtailment_techs})
+    
+    gamma = scen.par("relation_activity",
+                     {"technology":wind_curtailment_techs,
+                      "nodel_rel":"R11_WEU",
+                      "year_rel":2050,
+                      })
+
     # theoretical wind curtailment
-    theor_wind_curtailment_1 = 0.10*(wind_resources - 0.222*demand) # old input values and penetration bins! 
-    theor_wind_curtailment_2 = 0.25*(wind_resources - 0.389*demand) # old input values and penetration bins!
-    theor_wind_curtailment_3 = 0.35*(wind_resources - 0.500*demand) # old input values and penetration bins!
+    theor_wind_curtailment = []
+    for i in wind_curtailment_techs:
+        phi_i = phi[i]
+        gamma_i = gamma[i]
+        theor_wind_curtailment_i = gamma_i*(wind_resources - phi_i*demand) # old input values and penetration bins! 
+        theor_wind_curtailment_i[theor_wind_curtailment_i < 0] = 0
 
-    theor_wind_curtailment_1[theor_wind_curtailment_1 < 0] = 0
-    theor_wind_curtailment_2[theor_wind_curtailment_2 < 0] = 0
-    theor_wind_curtailment_3[theor_wind_curtailment_3 < 0] = 0
+        theor_wind_curtailment.append(theor_wind_curtailment_i)
 
-    theor_wind_curtailment_sum = theor_wind_curtailment_1 + theor_wind_curtailment_2 + theor_wind_curtailment_3
+    theor_wind_curtailment_sum = sum(theor_wind_curtailment)
+
+    # theor_wind_curtailment_2 = 0.25*(wind_resources - 0.389*demand) # old input values and penetration bins!
+    # theor_wind_curtailment_3 = 0.35*(wind_resources - 0.500*demand) # old input values and penetration bins!
+
+    # theor_wind_curtailment_1[theor_wind_curtailment_1 < 0] = 0
+    # theor_wind_curtailment_2[theor_wind_curtailment_2 < 0] = 0
+    # theor_wind_curtailment_3[theor_wind_curtailment_3 < 0] = 0
+
+    # theor_wind_curtailment_sum = theor_wind_curtailment_1 + theor_wind_curtailment_2 + theor_wind_curtailment_3
 
     # theoretical solar curtailment
-    theor_solar_curtailment_1 = 0.15*(solar_resources - 0.144*demand)
-    theor_solar_curtailment_2 = 0.25*(solar_resources - 0.200*demand)
-    theor_solar_curtailment_3 = 0.35*(solar_resources - 0.278*demand)
+    # theor_solar_curtailment_1 = 0.15*(solar_resources - 0.144*demand)
+    # theor_solar_curtailment_2 = 0.25*(solar_resources - 0.200*demand)
+    # theor_solar_curtailment_3 = 0.35*(solar_resources - 0.278*demand)
 
-    theor_solar_curtailment_1[theor_solar_curtailment_1 < 0] = 0
-    theor_solar_curtailment_2[theor_solar_curtailment_2 < 0] = 0
-    theor_solar_curtailment_3[theor_solar_curtailment_3 < 0] = 0
+    # theor_solar_curtailment_1[theor_solar_curtailment_1 < 0] = 0
+    # theor_solar_curtailment_2[theor_solar_curtailment_2 < 0] = 0
+    # theor_solar_curtailment_3[theor_solar_curtailment_3 < 0] = 0
 
-    theor_solar_curtailment_sum = theor_solar_curtailment_1 + theor_solar_curtailment_2 + theor_solar_curtailment_3
+    # theor_solar_curtailment_sum = theor_solar_curtailment_1 + theor_solar_curtailment_2 + theor_solar_curtailment_3
+
+    phi = scen.par("input",
+                   {"technology":solar_curtailment_techs})
+    
+    gamma = scen.par("relation_activity",
+                     {"technology":solar_curtailment_techs,
+                      "nodel_rel":"R11_WEU",
+                      "year_rel":2050,
+                      })
+
+    # theoretical solar curtailment
+    theor_solar_curtailment = []
+    for i in solar_curtailment_techs:
+        phi_i = phi[i]
+        gamma_i = gamma[i]
+        theor_solar_curtailment_i = gamma_i*(solar_resources - phi_i*demand) # old input values and penetration bins! 
+        theor_solar_curtailment_i[theor_solar_curtailment_i < 0] = 0
+
+        theor_solar_curtailment.append(theor_solar_curtailment_i)
+
+    theor_solar_curtailment_sum = sum(theor_solar_curtailment)
+    
 
     return theor_wind_curtailment_sum, theor_solar_curtailment_sum, wind_resources, solar_resources
 

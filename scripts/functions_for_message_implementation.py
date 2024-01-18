@@ -2,7 +2,7 @@ import pandas as pd
 from itertools import product
 from message_ix.utils import make_df
 
-def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, renewable,beta_tech_renewable):
+def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, renewable,beta_tech_renewable, shift_beta=False):
     # interregional elcetricity flow (e.g., from Europe to North Africa) is something that we cannot 
     # represent in this softlinkage. For this reason, we want to keep the coefficients from the original
     # representation. We do this by first initializing the 2D array corresponding to the wind and solar 
@@ -72,14 +72,15 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
         beta_tech_t_df = pd.DataFrame(beta_tech.beta)
         beta_tech_t_df.columns = [0]
 
-        # here, we try to shift the coefficients of the first bin in the original representation
-        # this is because, the 0 coefficient in the first bin leads to very low VRE penetration
-        if renewable == "wind":
-            beta_tech_t_df.loc["wind_curtailment_w0s0"] = beta_tech_t_df.loc["wind_curtailment_w2s0"]
-            beta_tech_t_df.loc["wind_curtailment_w2s0"] = 0
-        elif renewable == "solar":
-            beta_tech_t_df.loc["solar_curtailment_s0w0"] = beta_tech_t_df.loc["solar_curtailment_s2w0"]
-            beta_tech_t_df.loc["solar_curtailment_s2w0"] = 0
+        if shift_beta:
+            # here, we try to shift the coefficients of the first bin in the original representation
+            # this is because, the 0 coefficient in the first bin leads to very low VRE penetration
+            if renewable == "wind":
+                beta_tech_t_df.loc["wind_curtailment_w0s0"] = beta_tech_t_df.loc["wind_curtailment_w2s0"]
+                beta_tech_t_df.loc["wind_curtailment_w2s0"] = 0
+            elif renewable == "solar":
+                beta_tech_t_df.loc["solar_curtailment_s0w0"] = beta_tech_t_df.loc["solar_curtailment_s2w0"]
+                beta_tech_t_df.loc["solar_curtailment_s2w0"] = 0
 
         beta_techs[t] = beta_tech_t_df
 
@@ -87,6 +88,32 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
         beta_tech_renewable_extended.update(beta_techs)
 
     return beta_tech_renewable_extended
+
+def split_wind(df,cname,str1=""):
+    df["solar"] = df["index"].str.split("s",expand=True)[1].astype(int) + 1
+    df["wind"] = df["index"].str.split("s",expand=True)[0].str.split("w",expand=True)[2].astype(int) + 1
+    df_wind_only = df.query("solar == 1")
+
+    df_wind_only["prefix"] = "wind_curtailment"
+    df_wind_only["name"] = df_wind_only["prefix"] + str1 + df_wind_only["wind"].astype(str)
+    df_wind_only.set_index("name",inplace=True)
+
+    wind_only_dict = df_wind_only[cname].to_dict()
+
+    return wind_only_dict
+
+def split_solar(df,cname,str1=""):
+    df["wind"] = df["index"].str.split("w",expand=True)[1].astype(int) + 1
+    df["solar"] = df["index"].str.split("w",expand=True)[0].str.split("s",expand=True)[2].astype(int) + 1
+
+    df_solar_only = df.query("wind == 1")
+    df_solar_only["prefix"] = "solar_curtailment"
+    df_solar_only["name"] = df_solar_only["prefix"] + str1 + df_solar_only["solar"].astype(str)
+    df_solar_only.set_index("name", inplace=True)
+
+    solar_only_dict = df_solar_only[cname].to_dict()
+
+    return solar_only_dict
 
 def add_storage_tech(sc, sc_ref, tech, years, capacity_factor, inv_cost, lifetime, efficiency, region, df_beta_solar_SDES, df_beta_solar_LDES, df_beta_wind_LDES, df_beta_wind_SDES, change_structure=False):
 
@@ -418,7 +445,7 @@ def add_new_bins(sc, new_bins, parname, curt_relation, curt_relation_tech, regio
         relations = [x for x, y in curt_relation_tech.items() if y in new_bins[rel_new]]
 
         old = sc.par(parname, {"node_loc": region, 
-                            "relation": relations})
+                                "relation": relations})
         if old.empty:
             continue
 
