@@ -23,7 +23,7 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
                                                 renewable + "_curtailment_2",
                                                 renewable + "_curtailment_3"],
                                     "node_loc": ["R11_WEU"],
-                                    "year_rel": [2020],
+                                    "year_rel": [2050],
                                     "technology": message_techs_in_curtailment_rels,
                                     })
 
@@ -33,7 +33,7 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
                                                 renewable + "_curtailment_2",
                                                 renewable + "_curtailment_3"],
                                     "node_loc": ["R11_WEU"],
-                                    "year_rel": [2020],
+                                    "year_rel": [2050],
                                     "technology": ["elec_t_d"],
                                     })
 
@@ -57,14 +57,14 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
 
         for lvl in range(len(beta_message)):
             penetration_lvl_message_lvl = penetration_lvl_message[lvl]
-            penetration_lvl_message_lvlp1 = penetration_lvl_message[lvl+1] if lvl < len(beta_message)-1 else 100
+            # penetration_lvl_message_lvlp1 = penetration_lvl_message[lvl+1] if lvl < len(beta_message)-1 else 100
+
+            primary_col = "wind_share" if renewable == "wind" else "solar_share"
+            secondary_col = "solar_share" if renewable == "wind" else "wind_share"
+            beta_tech_insert_1d = beta_tech_insert.loc[beta_tech_insert[secondary_col] == 0]
+            index_lvl = beta_tech_insert_1d.loc[beta_tech_insert_1d[primary_col] <= penetration_lvl_message_lvl].index[-1]
             
-            index_lvl = beta_tech_insert.loc[secondary_index == 0].query(renewable + "_share > @penetration_lvl_message_lvl").query(renewable + "_share < @penetration_lvl_message_lvlp1").index
-            
-            if renewable == "wind":
-                beta_tech_insert.loc[index_lvl,"beta"] = beta_message[lvl]
-            else:
-                beta_tech_insert.loc[index_lvl,"beta"] = sum(beta_message) # all bins in the existing MESSAGEix-GLOBIOM for solar PV belong to the same bin in the PyPSA-Eur data
+            beta_tech_insert.loc[index_lvl,"beta"] += beta_message[lvl]
 
         beta_tech_insert = beta_tech_insert.loc[beta_tech_insert.beta.drop_duplicates().index]
         beta_tech.loc[beta_tech_insert.index,"beta"] = beta_tech_insert
