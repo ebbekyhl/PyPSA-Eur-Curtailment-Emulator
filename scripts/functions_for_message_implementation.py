@@ -57,14 +57,13 @@ def keep_existing_tech_contributions(sc_ref, message_techs_in_curtailment_rels, 
 
         for lvl in range(len(beta_message)):
             penetration_lvl_message_lvl = penetration_lvl_message[lvl]
-            # penetration_lvl_message_lvlp1 = penetration_lvl_message[lvl+1] if lvl < len(beta_message)-1 else 100
 
             primary_col = "wind_share" if renewable == "wind" else "solar_share"
             secondary_col = "solar_share" if renewable == "wind" else "wind_share"
             beta_tech_insert_1d = beta_tech_insert.loc[beta_tech_insert[secondary_col] == 0]
             index_lvl = beta_tech_insert_1d.loc[beta_tech_insert_1d[primary_col] <= penetration_lvl_message_lvl].index[-1]
             
-            beta_tech_insert.loc[index_lvl,"beta"] += beta_message[lvl]
+            beta_tech_insert.loc[index_lvl,"beta"] = beta_message[lvl]
 
         beta_tech_insert = beta_tech_insert.loc[beta_tech_insert.beta.drop_duplicates().index]
         beta_tech.loc[beta_tech_insert.index,"beta"] = beta_tech_insert
@@ -255,7 +254,7 @@ def add_storage_tech(sc, sc_ref, tech, years, capacity_factor, inv_cost, lifetim
 
         sc.add_par("relation_activity",df_storage_curtailment)
 
-def keep_existing_curtailment_rates(sc_ref, renewable, gamma_ij_wind, gamma_ij_solar):
+def keep_existing_curtailment_rates(sc_ref, renewable, gamma_ij):
     # gamma coefficients in the original representation
     gamma_old = sc_ref.par("input",
                             filters={"technology": [renewable + "_curtailment1",
@@ -284,10 +283,7 @@ def keep_existing_curtailment_rates(sc_ref, renewable, gamma_ij_wind, gamma_ij_s
                             5:60,
                             6:70}
 
-    if renewable == "wind":
-        gamma_new = gamma_ij_wind.copy()
-    elif renewable == "solar":
-        gamma_new = gamma_ij_solar.copy()
+    gamma_new = gamma_ij.copy()
     
     gamma_new.columns = ["gamma_coef"]
     gamma_new.loc[:,:] = 0
@@ -301,23 +297,19 @@ def keep_existing_curtailment_rates(sc_ref, renewable, gamma_ij_wind, gamma_ij_s
 
     gamma_new_insert = gamma_new.copy()
 
-    # print(gamma_new)
     for lvl in range(len(penetration_lvl_message)):
         penetration_lvl_message_lvl = penetration_lvl_message[lvl]
         penetration_lvl_message_lvlp1 = penetration_lvl_message[lvl+1] if lvl < len(penetration_lvl_message)-1 else 100
-        # print(penetration_lvl_message_lvl)
+
         index_lvl = gamma_new.loc[secondary_index == 0].query(renewable + "_share > @penetration_lvl_message_lvl").query(renewable + "_share < @penetration_lvl_message_lvlp1").index
 
         if len(index_lvl) > 0:
-            # print(index_lvl)
             index_lvl = index_lvl[0]
 
         if renewable == "wind":
             gamma_new_insert.loc[index_lvl,"gamma_coef"] = gamma_old.iloc[lvl].value
         else:
             gamma_new_insert.loc[index_lvl,"gamma_coef"] = sum(gamma_old.value) # all bins in the existing MESSAGEix-GLOBIOM for solar PV belong to the same bin in the PyPSA-Eur data
-
-        # gamma_new_dict = gamma_new_insert.gamma_coef.to_dict()
 
     gamma_new = gamma_new_insert.drop(columns=["solar_share","wind_share"]
                                )
